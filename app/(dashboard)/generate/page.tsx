@@ -13,7 +13,7 @@ export default async function GeneratePage() {
 
   return (
     <div className="flex flex-1 flex-col items-center gap-6 px-6 py-16">
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-4xl">
         <h1 className="mb-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           Generate a recipe
         </h1>
