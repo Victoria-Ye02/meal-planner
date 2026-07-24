@@ -7,7 +7,7 @@ Next.js full-stack app where a user enters ingredients/preferences, an AI (Claud
 ## Architecture Decisions
 
 - **Auth:** Email/password via NextAuth (simplest for solo/portfolio scope; OAuth can be added later)
-- **AI provider:** Claude API, called only from server-side API routes (never exposed to client) — mitigates key leakage and prompt injection
+- **AI provider:** Claude models via OpenRouter (`https://openrouter.ai/api/v1`, OpenAI-compatible chat completions API), called only from server-side API routes (never exposed to client) — mitigates key leakage and prompt injection. Deviates from spec.md's "Claude API (Anthropic)" line — decided with the human during Task 5, `OPENROUTER_API_KEY` in `.env` instead of a native Anthropic key.
 - **Database:** PostgreSQL via Prisma, hosted on Neon (free tier works for a portfolio demo)
 - **Image handling:** MVP uses stock/placeholder images per recipe category, not AI-generated images (keeps AI cost down) — deferred, not skipped
 - **Rate limiting:** Simple per-user daily cap on AI generation calls to control API cost on a public demo
