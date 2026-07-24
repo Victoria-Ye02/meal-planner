@@ -1,3 +1,4 @@
+import { Prisma } from "@/app/generated/prisma/client";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
@@ -8,14 +9,19 @@ import {
   weekStartDateQuerySchema,
 } from "@/lib/validations/mealPlan";
 
+const PRISMA_UNIQUE_CONSTRAINT_ERROR = "P2002";
+
 /**
  * POST /api/mealplan
  *
  * Creates a new `MealPlan` for the current user anchored at `weekStartDate`.
- * Users can have any number of plans for different weeks — `weekStartDate`
- * is not unique, so this never collides with (or overwrites) an existing
- * week's plan; it's the client's job to check GET /api/mealplan?weekStartDate=
- * first if it wants to avoid creating duplicate plans for the same week.
+ * Users can have any number of plans for different weeks, but `(userId,
+ * weekStartDate)` is enforced unique at the database level (see the
+ * `MealPlan` model's `@@unique([userId, weekStartDate])`), so calling this
+ * twice for the same week returns a clean 409 rather than creating a
+ * duplicate plan; it's still the client's job to check
+ * GET /api/mealplan?weekStartDate= first if it wants to avoid hitting that
+ * conflict in the first place.
  *
  * Returns the created plan with an empty `entries` array (mirroring the
  * shape GET /api/mealplan/[planId] returns) so the client can immediately
@@ -43,22 +49,35 @@ export async function POST(request: Request) {
     );
   }
 
-  const plan = await prisma.mealPlan.create({
-    data: {
-      userId,
-      weekStartDate: normalizeWeekStartDate(parsed.data.weekStartDate),
-    },
-  });
+  try {
+    const plan = await prisma.mealPlan.create({
+      data: {
+        userId,
+        weekStartDate: normalizeWeekStartDate(parsed.data.weekStartDate),
+      },
+    });
 
-  return NextResponse.json(
-    {
-      id: plan.id,
-      userId: plan.userId,
-      weekStartDate: plan.weekStartDate,
-      entries: [],
-    },
-    { status: 201 },
-  );
+    return NextResponse.json(
+      {
+        id: plan.id,
+        userId: plan.userId,
+        weekStartDate: plan.weekStartDate,
+        entries: [],
+      },
+      { status: 201 },
+    );
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === PRISMA_UNIQUE_CONSTRAINT_ERROR
+    ) {
+      return NextResponse.json(
+        { error: "A meal plan for this week already exists." },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 }
 
 /**

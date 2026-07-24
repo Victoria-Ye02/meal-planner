@@ -22,6 +22,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+import { Prisma } from "../../app/generated/prisma/client";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/db";
 import { GET as getPlan } from "../../app/api/mealplan/[planId]/route";
@@ -202,6 +203,33 @@ describe("POST /api/mealplan", () => {
 
     expect(firstStoredDate.getTime()).toBe(secondStoredDate.getTime());
     expect(firstStoredDate.getTime()).toBe(new Date(WEEK_START).getTime());
+  });
+
+  it("returns 409 with a clean error body when a plan for this week already exists (unique constraint), not a raw 500", async () => {
+    const uniqueConstraintError = Object.assign(
+      Object.create(Prisma.PrismaClientKnownRequestError.prototype),
+      {
+        code: "P2002",
+        message: "Unique constraint failed on the fields: (`userId`,`weekStartDate`)",
+      },
+    );
+    mockPlanCreate.mockRejectedValue(uniqueConstraintError);
+
+    const response = await createPlan(
+      makePostRequest({ weekStartDate: WEEK_START }),
+    );
+
+    expect(response.status).toBe(409);
+    const json = await response.json();
+    expect(json.error).toBe("A meal plan for this week already exists.");
+  });
+
+  it("propagates non-unique-constraint errors instead of swallowing them", async () => {
+    mockPlanCreate.mockRejectedValue(new Error("unexpected database error"));
+
+    await expect(
+      createPlan(makePostRequest({ weekStartDate: WEEK_START })),
+    ).rejects.toThrow("unexpected database error");
   });
 });
 
