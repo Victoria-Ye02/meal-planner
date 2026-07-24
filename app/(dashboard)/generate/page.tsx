@@ -53,7 +53,7 @@ export default async function GeneratePage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="bg-gradient-to-br from-primary to-[oklch(0.5_0.16_20)] px-6 py-10 sm:py-12">
+      <div className="bg-gradient-to-br from-primary to-[oklch(0.4_0.13_240)] px-6 py-10 sm:py-12">
         <div className="mx-auto w-full max-w-4xl text-center sm:text-left">
           <h1 className="text-2xl font-semibold tracking-tight text-primary-foreground sm:text-3xl">
             What&apos;s in your kitchen?
