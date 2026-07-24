@@ -17,7 +17,7 @@ vi.mock("@/lib/db", () => ({
       deleteMany: vi.fn(),
     },
     recipe: {
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -51,7 +51,7 @@ const mockEntryUpsert = prisma.mealPlanEntry.upsert as unknown as ReturnType<
 >;
 const mockEntryDeleteMany = prisma.mealPlanEntry
   .deleteMany as unknown as ReturnType<typeof vi.fn>;
-const mockRecipeFindUnique = prisma.recipe.findUnique as unknown as ReturnType<
+const mockRecipeFindFirst = prisma.recipe.findFirst as unknown as ReturnType<
   typeof vi.fn
 >;
 
@@ -94,7 +94,7 @@ beforeEach(() => {
   mockEntryFindMany.mockReset();
   mockEntryUpsert.mockReset();
   mockEntryDeleteMany.mockReset();
-  mockRecipeFindUnique.mockReset();
+  mockRecipeFindFirst.mockReset();
 
   mockAuth.mockResolvedValue(AUTHED_SESSION);
 });
@@ -163,6 +163,46 @@ describe("POST /api/mealplan", () => {
 
     expect(response.status).toBe(400);
   });
+
+  it("normalizes weekStartDate to UTC midnight regardless of the time-of-day sent", async () => {
+    mockPlanCreate.mockResolvedValue({
+      id: "plan-1",
+      userId: "user-1",
+      weekStartDate: new Date(WEEK_START),
+    });
+
+    // Simulates a "local midnight" style input for the same calendar date
+    // (e.g. what a client several hours behind UTC would send for
+    // `<input type="date">`'s 2026-07-26) — not UTC midnight itself.
+    await createPlan(
+      makePostRequest({ weekStartDate: "2026-07-26T08:00:00.000Z" }),
+    );
+
+    expect(mockPlanCreate).toHaveBeenCalledWith({
+      data: { userId: "user-1", weekStartDate: new Date(WEEK_START) },
+    });
+  });
+
+  it("stores the same weekStartDate for two different time-of-day inputs on the same calendar date", async () => {
+    mockPlanCreate.mockResolvedValue({
+      id: "plan-1",
+      userId: "user-1",
+      weekStartDate: new Date(WEEK_START),
+    });
+
+    await createPlan(
+      makePostRequest({ weekStartDate: "2026-07-26T00:00:00.000Z" }),
+    );
+    await createPlan(
+      makePostRequest({ weekStartDate: "2026-07-26T08:00:00.000Z" }),
+    );
+
+    const firstStoredDate = mockPlanCreate.mock.calls[0]?.[0].data.weekStartDate;
+    const secondStoredDate = mockPlanCreate.mock.calls[1]?.[0].data.weekStartDate;
+
+    expect(firstStoredDate.getTime()).toBe(secondStoredDate.getTime());
+    expect(firstStoredDate.getTime()).toBe(new Date(WEEK_START).getTime());
+  });
 });
 
 describe("GET /api/mealplan", () => {
@@ -216,6 +256,39 @@ describe("GET /api/mealplan", () => {
 
     expect(response.status).toBe(401);
     expect(mockPlanFindMany).not.toHaveBeenCalled();
+  });
+
+  it("finds the plan when the query param uses a different time-of-day for the same calendar date as POST normalized to", async () => {
+    mockPlanFindFirst.mockResolvedValue({
+      id: "plan-1",
+      userId: "user-1",
+      weekStartDate: new Date(WEEK_START),
+      entries: [],
+    });
+
+    // Same calendar date as WEEK_START (2026-07-26) but sent as
+    // "local midnight" rather than UTC midnight — should still normalize to
+    // the same DB lookup value POST would have stored.
+    const response = await listPlans(
+      makeGetRequest(
+        `?weekStartDate=${encodeURIComponent("2026-07-26T08:00:00.000Z")}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockPlanFindFirst).toHaveBeenCalledWith({
+      where: { userId: "user-1", weekStartDate: new Date(WEEK_START) },
+      include: { entries: true },
+    });
+  });
+
+  it("returns 400 for an invalid weekStartDate query parameter (validated through Zod)", async () => {
+    const response = await listPlans(
+      makeGetRequest("?weekStartDate=not-a-date"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockPlanFindFirst).not.toHaveBeenCalled();
   });
 });
 
@@ -278,7 +351,7 @@ describe("PUT /api/mealplan/[planId]/entries", () => {
       userId: "user-1",
       weekStartDate: new Date(WEEK_START),
     });
-    mockRecipeFindUnique.mockResolvedValue({ id: "recipe-1" });
+    mockRecipeFindFirst.mockResolvedValue({ id: "recipe-1" });
     mockEntryUpsert.mockResolvedValue({
       id: "entry-1",
       mealPlanId: "plan-1",
@@ -373,7 +446,7 @@ describe("PUT /api/mealplan/[planId]/entries", () => {
   });
 
   it("returns 404 when the recipeId does not exist", async () => {
-    mockRecipeFindUnique.mockResolvedValue(null);
+    mockRecipeFindFirst.mockResolvedValue(null);
 
     const response = await putEntry(
       makePutRequest("plan-1", VALID_ENTRY_BODY),
@@ -384,6 +457,66 @@ describe("PUT /api/mealplan/[planId]/entries", () => {
 
     expect(response.status).toBe(404);
     expect(mockEntryUpsert).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the recipeId exists but belongs to a different user (not created by, not saved by them)", async () => {
+    // Simulates prisma.recipe.findFirst finding no row because the OR
+    // ownership/saved-by filter excludes a recipe that exists but isn't
+    // this user's — same 404 as a nonexistent recipeId, no leak either way.
+    mockRecipeFindFirst.mockResolvedValue(null);
+
+    const response = await putEntry(
+      makePutRequest("plan-1", VALID_ENTRY_BODY),
+      {
+        params: Promise.resolve({ planId: "plan-1" }),
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(mockRecipeFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: "recipe-1",
+        OR: [
+          { createdBy: "user-1" },
+          { savedBy: { some: { userId: "user-1" } } },
+        ],
+      },
+    });
+    expect(mockEntryUpsert).not.toHaveBeenCalled();
+  });
+
+  it("succeeds when the recipeId was created by the requesting user", async () => {
+    mockRecipeFindFirst.mockResolvedValue({
+      id: "recipe-1",
+      createdBy: "user-1",
+    });
+
+    const response = await putEntry(
+      makePutRequest("plan-1", VALID_ENTRY_BODY),
+      {
+        params: Promise.resolve({ planId: "plan-1" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockEntryUpsert).toHaveBeenCalled();
+  });
+
+  it("succeeds when the recipeId was saved (not created) by the requesting user", async () => {
+    mockRecipeFindFirst.mockResolvedValue({
+      id: "recipe-1",
+      createdBy: "someone-else",
+    });
+
+    const response = await putEntry(
+      makePutRequest("plan-1", VALID_ENTRY_BODY),
+      {
+        params: Promise.resolve({ planId: "plan-1" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockEntryUpsert).toHaveBeenCalled();
   });
 
   it("returns 401 when there is no session", async () => {

@@ -58,7 +58,17 @@ export async function PUT(
 
   const { recipeId, dayOfWeek, mealType } = parsed.data;
 
-  const recipe = await prisma.recipe.findUnique({ where: { id: recipeId } });
+  // Recipes can only be assigned to a slot if the requesting user actually
+  // has a relationship to them — either they authored it or they saved it.
+  // A flat 404 covers both "no such recipe" and "recipe exists but isn't
+  // yours", mirroring the ownership-check pattern used for MealPlan above
+  // (never leak which case it was).
+  const recipe = await prisma.recipe.findFirst({
+    where: {
+      id: recipeId,
+      OR: [{ createdBy: userId }, { savedBy: { some: { userId } } }],
+    },
+  });
   if (!recipe) {
     return NextResponse.json({ error: "Recipe not found." }, { status: 404 });
   }

@@ -42,6 +42,20 @@ export const createMealPlanRequestSchema = z.object({
 export type CreateMealPlanRequest = z.infer<typeof createMealPlanRequestSchema>;
 
 /**
+ * Query-param shape for GET /api/mealplan?weekStartDate=... — same
+ * `z.coerce.date()` coercion as the POST body schema so a query-string
+ * lookup accepts the same range of date formats a write does, instead of
+ * bypassing Zod with a raw `new Date()` + `Number.isNaN` check.
+ */
+export const weekStartDateQuerySchema = z.object({
+  weekStartDate: z.coerce.date({
+    error: "weekStartDate must be a valid date.",
+  }),
+});
+
+export type WeekStartDateQuery = z.infer<typeof weekStartDateQuerySchema>;
+
+/**
  * Request body shape for PUT /api/mealplan/[planId]/entries — assigns
  * (or replaces) the recipe in a single `(dayOfWeek, mealType)` slot.
  */

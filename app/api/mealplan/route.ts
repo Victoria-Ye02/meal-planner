@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { createMealPlanRequestSchema } from "@/lib/validations/mealPlan";
+import { normalizeWeekStartDate } from "@/lib/mealPlan";
+import {
+  createMealPlanRequestSchema,
+  weekStartDateQuerySchema,
+} from "@/lib/validations/mealPlan";
 
 /**
  * POST /api/mealplan
@@ -40,7 +44,10 @@ export async function POST(request: Request) {
   }
 
   const plan = await prisma.mealPlan.create({
-    data: { userId, weekStartDate: parsed.data.weekStartDate },
+    data: {
+      userId,
+      weekStartDate: normalizeWeekStartDate(parsed.data.weekStartDate),
+    },
   });
 
   return NextResponse.json(
@@ -78,13 +85,17 @@ export async function GET(request: Request) {
   const weekStartDateParam = searchParams.get("weekStartDate");
 
   if (weekStartDateParam !== null) {
-    const weekStartDate = new Date(weekStartDateParam);
-    if (Number.isNaN(weekStartDate.getTime())) {
+    const parsedQuery = weekStartDateQuerySchema.safeParse({
+      weekStartDate: weekStartDateParam,
+    });
+    if (!parsedQuery.success) {
       return NextResponse.json(
         { error: "Invalid weekStartDate query parameter." },
         { status: 400 },
       );
     }
+
+    const weekStartDate = normalizeWeekStartDate(parsedQuery.data.weekStartDate);
 
     const plan = await prisma.mealPlan.findFirst({
       where: { userId, weekStartDate },
