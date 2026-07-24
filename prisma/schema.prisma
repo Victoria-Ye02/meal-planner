@@ -6,6 +6,7 @@ generator client {
   output   = "../app/generated/prisma"
 }
 
+// Note: the CLI reads the connection URL from prisma.config.ts, not from a `url` field here.
 datasource db {
   provider = "postgresql"
 }
@@ -33,6 +34,8 @@ model Recipe {
   createdBy    String
   createdAt    DateTime @default(now())
 
+  // Intentionally left as the default (Restrict), not an oversight: protects authored
+  // recipe content from being silently deleted when the creator's account is removed.
   creator         User            @relation(fields: [createdBy], references: [id])
   savedBy         SavedRecipe[]
   mealPlanEntries MealPlanEntry[]
@@ -45,8 +48,8 @@ model SavedRecipe {
   recipeId String
   savedAt  DateTime @default(now())
 
-  user   User   @relation(fields: [userId], references: [id])
-  recipe Recipe @relation(fields: [recipeId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@id([userId, recipeId])
   @@index([recipeId])
@@ -57,7 +60,7 @@ model MealPlan {
   userId        String
   weekStartDate DateTime
 
-  user    User            @relation(fields: [userId], references: [id])
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   entries MealPlanEntry[]
 
   @@index([userId])
@@ -76,8 +79,8 @@ model MealPlanEntry {
   dayOfWeek  Int
   mealType   MealType
 
-  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id])
-  recipe   Recipe   @relation(fields: [recipeId], references: [id])
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  recipe   Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@unique([mealPlanId, dayOfWeek, mealType])
   @@index([mealPlanId])
