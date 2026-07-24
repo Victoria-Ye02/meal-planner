@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth, signOut } from "@/lib/auth";
+import { LogoutButton } from "@/components/LogoutButton";
 
 /**
  * Shared chrome for the authenticated app (Generate / Favorites / Meal
@@ -57,12 +58,7 @@ export default async function DashboardLayout({
               await signOut({ redirectTo: "/" });
             }}
           >
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-            >
-              Log out
-            </button>
+            <LogoutButton className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50" />
           </form>
         </nav>
       </header>
