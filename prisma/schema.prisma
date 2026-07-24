@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  passwordHash       String
+  dietaryPreferences String[]
+  allergies          String[]
+  createdAt          DateTime @default(now())
+
+  recipes      Recipe[]
+  savedRecipes SavedRecipe[]
+  mealPlans    MealPlan[]
+}
+
+model Recipe {
+  id           String   @id @default(cuid())
+  title        String
+  ingredients  String[]
+  instructions String
+  aiGenerated  Boolean  @default(false)
+  imageUrl     String?
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  creator         User            @relation(fields: [createdBy], references: [id])
+  savedBy         SavedRecipe[]
+  mealPlanEntries MealPlanEntry[]
+
+  @@index([createdBy])
+}
+
+model SavedRecipe {
+  userId   String
+  recipeId String
+  savedAt  DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  recipe Recipe @relation(fields: [recipeId], references: [id])
+
+  @@id([userId, recipeId])
+  @@index([recipeId])
+}
+
+model MealPlan {
+  id            String   @id @default(cuid())
+  userId        String
+  weekStartDate DateTime
+
+  user    User            @relation(fields: [userId], references: [id])
+  entries MealPlanEntry[]
+
+  @@index([userId])
+}
+
+enum MealType {
+  breakfast
+  lunch
+  dinner
+}
+
+model MealPlanEntry {
+  id         String   @id @default(cuid())
+  mealPlanId String
+  recipeId   String
+  dayOfWeek  Int
+  mealType   MealType
+
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id])
+  recipe   Recipe   @relation(fields: [recipeId], references: [id])
+
+  @@unique([mealPlanId, dayOfWeek, mealType])
+  @@index([mealPlanId])
+  @@index([recipeId])
+}
