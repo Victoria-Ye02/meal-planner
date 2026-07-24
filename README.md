@@ -67,4 +67,5 @@ DB Studio:   npx prisma studio
 ## Notes
 
 - The AI provider is **OpenRouter**, not a native Anthropic API key — see `tasks/plan.md`'s Architecture Decisions for why.
+- **The production deployment and local development currently share the same Neon database** (a portfolio-scope tradeoff, not a mistake). If you clone this repo, use your own `DATABASE_URL` (e.g. a fresh free Neon project) rather than reusing the one from a maintainer's `.env` — reusing it means your local reads/writes (including `npx prisma migrate reset`) would hit live production data.
 - The Playwright E2E test (`e2e/happy-path.spec.ts`) exercises the full signup → generate → save → meal-plan flow against a real database and a real AI call. It's meant to be run manually/locally, not wired into per-push CI, since it writes permanent rows to whatever database `DATABASE_URL` points at.
