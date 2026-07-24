@@ -49,26 +49,28 @@ export default async function MealPlanPage() {
 
   const weekStartDate = getCurrentWeekStartDate(new Date());
 
-  // Get-or-create "this week's" plan, mirroring the lookup POST/GET
-  // /api/mealplan use (weekStartDate is not unique per Task 10's docs, so
-  // this must findFirst then create — never upsert against it). Queried
-  // directly via prisma rather than over HTTP, the same direct-fetch
-  // pattern the Favorites page (Task 9) uses for its Server Component data
-  // loading. `entries: { include: { recipe: true } }` joins in the recipe
-  // title for display — the entries API itself doesn't include it, this
-  // page needs the join, so it queries prisma directly instead of the
-  // narrower shape GET /api/mealplan returns.
-  let plan = await prisma.mealPlan.findFirst({
-    where: { userId, weekStartDate },
+  // Get-or-create "this week's" plan. `MealPlan` has a `@@unique([userId,
+  // weekStartDate])` constraint (see prisma/schema.prisma) specifically so
+  // this can be a single atomic `upsert` instead of a `findFirst`-then-
+  // `create` — two near-simultaneous page loads (two tabs, a double-click
+  // navigation) racing here would otherwise both observe "no plan yet" and
+  // each create a duplicate row for the week, since neither Postgres nor
+  // Prisma give any isolation between an app-level read and a later write
+  // without either a transaction+lock or a unique index for the database
+  // to arbitrate against. `upsert` pushes that arbitration into the DB: both
+  // requests resolve to the same single row. Queried directly via prisma
+  // rather than over HTTP, the same direct-fetch pattern the Favorites page
+  // (Task 9) uses for its Server Component data loading. `entries: {
+  // include: { recipe: true } }` joins in the recipe title for display —
+  // the entries API itself doesn't include it, this page needs the join, so
+  // it queries prisma directly instead of the narrower shape GET
+  // /api/mealplan returns.
+  const plan = await prisma.mealPlan.upsert({
+    where: { userId_weekStartDate: { userId, weekStartDate } },
+    update: {},
+    create: { userId, weekStartDate },
     include: { entries: { include: { recipe: true } } },
   });
-
-  if (!plan) {
-    plan = await prisma.mealPlan.create({
-      data: { userId, weekStartDate },
-      include: { entries: { include: { recipe: true } } },
-    });
-  }
 
   // Picker list for assigning a recipe to a slot is scoped to the current
   // user's saved recipes only, per task-11-brief.md — same query Favorites

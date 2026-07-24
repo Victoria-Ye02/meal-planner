@@ -77,6 +77,12 @@ model MealPlan {
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   entries MealPlanEntry[]
 
+  // Enforces one plan per user per week at the database level so concurrent
+  // "get or create this week's plan" calls (e.g. two browser tabs loading
+  // Task 11's calendar page at once) can't both observe "no plan yet" and
+  // each create a duplicate row — see page.tsx's use of upsert against this
+  // constraint's generated index name (userId_weekStartDate).
+  @@unique([userId, weekStartDate])
   @@index([userId])
 }
 
