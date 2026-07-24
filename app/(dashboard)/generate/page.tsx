@@ -12,14 +12,14 @@ export default async function GeneratePage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-16">
+    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-12 sm:py-16">
       <div className="w-full max-w-4xl">
-        <h1 className="mb-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           Generate a recipe
         </h1>
-        <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mb-8 max-w-prose text-muted">
           Add the ingredients you have on hand and any dietary preferences, then
-          generate recipe ideas.
+          let the AI suggest a few things to cook.
         </p>
         <GenerateForm />
       </div>

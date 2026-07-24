@@ -29,37 +29,44 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
+    <div className="flex flex-1 flex-col bg-background">
+      <header className="border-b border-border bg-surface">
         <nav className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-4">
-          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
+          <Link
+            href="/generate"
+            className="flex items-center gap-2 text-base font-semibold tracking-tight text-foreground"
+          >
+            <span aria-hidden="true">🍲</span>
+            Meal Planner
+          </Link>
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-2 text-sm font-medium">
             <Link
               href="/generate"
-              className="text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              className="rounded-control px-3 py-1.5 text-muted transition-colors duration-200 ease-out-quart hover:bg-surface-2 hover:text-foreground"
             >
               Generate
             </Link>
             <Link
               href="/favorites"
-              className="text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              className="rounded-control px-3 py-1.5 text-muted transition-colors duration-200 ease-out-quart hover:bg-surface-2 hover:text-foreground"
             >
               Favorites
             </Link>
             <Link
               href="/mealplan"
-              className="text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              className="rounded-control px-3 py-1.5 text-muted transition-colors duration-200 ease-out-quart hover:bg-surface-2 hover:text-foreground"
             >
               Meal plan
             </Link>
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/" });
+              }}
+            >
+              <LogoutButton className="rounded-control border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors duration-200 ease-out-quart hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50" />
+            </form>
           </div>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/" });
-            }}
-          >
-            <LogoutButton className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50" />
-          </form>
         </nav>
       </header>
       {children}

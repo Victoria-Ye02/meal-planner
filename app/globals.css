@@ -1,26 +1,115 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens — "a well-loved recipe box": warm cream paper, terracotta
+ * clay, sage garden herbs, charcoal ink. All colors in OKLCH.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --background: oklch(0.977 0.013 75);
+  --surface: oklch(0.94 0.017 70);
+  --surface-2: oklch(0.905 0.019 68);
+  --border: oklch(0.86 0.02 65);
+  --foreground: oklch(0.22 0.018 45);
+  --muted: oklch(0.48 0.023 50);
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --primary: oklch(0.59 0.188 35.8);
+  --primary-hover: oklch(0.535 0.188 35.8);
+  --primary-foreground: oklch(0.99 0.006 75);
+
+  --accent: oklch(0.53 0.1 145);
+  --accent-hover: oklch(0.475 0.1 145);
+  --accent-foreground: oklch(0.99 0.006 75);
+
+  --danger: oklch(0.55 0.19 25);
+  --danger-foreground: oklch(0.99 0.006 75);
+
+  --radius-card: 1rem;
+  --radius-control: 0.6rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: oklch(0.16 0.014 40);
+    --surface: oklch(0.21 0.016 42);
+    --surface-2: oklch(0.26 0.017 42);
+    --border: oklch(0.32 0.018 45);
+    --foreground: oklch(0.95 0.012 70);
+    --muted: oklch(0.7 0.02 60);
+
+    --primary: oklch(0.685 0.17 36);
+    --primary-hover: oklch(0.74 0.17 36);
+    --primary-foreground: oklch(0.14 0.01 40);
+
+    --accent: oklch(0.68 0.12 145);
+    --accent-hover: oklch(0.735 0.12 145);
+    --accent-foreground: oklch(0.14 0.01 40);
+
+    --danger: oklch(0.65 0.18 25);
+    --danger-foreground: oklch(0.14 0.01 40);
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+
+  --radius-card: var(--radius-card);
+  --radius-control: var(--radius-control);
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+  font-family: var(--font-display);
+}
+
+p {
+  text-wrap: pretty;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

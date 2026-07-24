@@ -34,7 +34,11 @@ const DAY_LABELS = [
 function getCurrentWeekStartDate(now: Date): Date {
   const dayOfWeek = now.getUTCDay();
   const sunday = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek),
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - dayOfWeek,
+    ),
   );
   return normalizeWeekStartDate(sunday);
 }
@@ -111,12 +115,12 @@ export default async function MealPlanPage() {
   });
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-16">
+    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-12 sm:py-16">
       <div className="w-full max-w-5xl">
-        <h1 className="mb-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           This week&apos;s meal plan
         </h1>
-        <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mb-8 text-muted">
           Assign a saved recipe to any day and meal below.
         </p>
         <MealPlanCalendar

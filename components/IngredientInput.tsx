@@ -49,10 +49,7 @@ export function IngredientInput({
 
   return (
     <div className="flex flex-col gap-2">
-      <label
-        htmlFor={inputId}
-        className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-      >
+      <label htmlFor={inputId} className="text-sm font-medium text-foreground">
         {label}
       </label>
       <div className="flex gap-2">
@@ -63,12 +60,12 @@ export function IngredientInput({
           onChange={(event) => setPendingValue(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          className="flex-1 rounded-control border border-border bg-surface px-3 py-2.5 text-foreground transition-colors duration-200 ease-out-quart focus:border-primary"
         />
         <button
           type="button"
           onClick={commitPendingValue}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+          className="rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 ease-out-quart hover:bg-surface-2"
         >
           Add
         </button>
@@ -78,14 +75,14 @@ export function IngredientInput({
           {ingredients.map((ingredient) => (
             <li
               key={ingredient}
-              className="flex items-center gap-1 rounded-full bg-zinc-100 px-3 py-1 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50"
+              className="flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pl-3 pr-2 text-sm text-foreground"
             >
               <span>{ingredient}</span>
               <button
                 type="button"
                 onClick={() => onRemove(ingredient)}
                 aria-label={`Remove ${ingredient}`}
-                className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                className="rounded-full p-0.5 text-muted transition-colors duration-200 ease-out-quart hover:bg-border hover:text-foreground"
               >
                 ×
               </button>

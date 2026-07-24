@@ -27,9 +27,9 @@ export function RecipeCard({
   saveError = null,
 }: RecipeCardProps) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 shadow-sm dark:border-zinc-800">
+    <div className="flex flex-col rounded-card border border-border bg-surface p-5 shadow-sm transition-shadow duration-200 ease-out-quart hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
-        <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">
+        <h3 className="font-display text-lg font-semibold text-foreground">
           {recipe.title}
         </h3>
         <button
@@ -37,38 +37,39 @@ export function RecipeCard({
           onClick={onToggleSave}
           disabled={isSaving}
           aria-pressed={saved}
-          className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`inline-flex shrink-0 items-center gap-1 rounded-control border px-2.5 py-1 text-xs font-medium transition-colors duration-200 ease-out-quart disabled:cursor-not-allowed disabled:opacity-50 ${
             saved
-              ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-              : "border-zinc-300 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border text-foreground hover:bg-surface-2"
           }`}
         >
+          <span aria-hidden="true">{saved ? "♥" : "♡"}</span>
           {isSaving ? "Saving…" : saved ? "Saved" : "Save"}
         </button>
       </div>
 
       {saveError && (
-        <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-1 text-xs text-danger">
           {saveError}
         </p>
       )}
 
-      <div className="mt-3">
-        <h4 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      <div className="mt-4">
+        <h4 className="text-xs font-semibold tracking-wide text-muted uppercase">
           Ingredients
         </h4>
-        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-600 dark:text-zinc-400">
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm text-foreground/90">
           {recipe.ingredients.map((ingredient, index) => (
             <li key={`${index}-${ingredient}`}>{ingredient}</li>
           ))}
         </ul>
       </div>
 
-      <div className="mt-3">
-        <h4 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      <div className="mt-4">
+        <h4 className="text-xs font-semibold tracking-wide text-muted uppercase">
           Instructions
         </h4>
-        <p className="mt-1 whitespace-pre-line text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-1.5 whitespace-pre-line text-sm text-foreground/90">
           {recipe.instructions}
         </p>
       </div>

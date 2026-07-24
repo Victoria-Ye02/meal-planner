@@ -39,16 +39,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
-      <div className="w-full max-w-sm">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Log in
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 bg-background px-6 py-16">
+      <div className="w-full max-w-sm rounded-card border border-border bg-surface p-7 shadow-sm">
+        <h1 className="mb-1 text-2xl font-semibold tracking-tight text-foreground">
+          Welcome back
         </h1>
+        <p className="mb-6 text-sm text-muted">Log in to get cooking.</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             <label
               htmlFor="email"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              className="text-sm font-medium text-foreground"
             >
               Email
             </label>
@@ -60,13 +61,13 @@ export default function LoginPage() {
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              className="rounded-control border border-border bg-background px-3 py-2.5 text-foreground transition-colors duration-200 ease-out-quart focus:border-primary"
             />
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             <label
               htmlFor="password"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              className="text-sm font-medium text-foreground"
             >
               Password
             </label>
@@ -78,23 +79,28 @@ export default function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              className="rounded-control border border-border bg-background px-3 py-2.5 text-foreground transition-colors duration-200 ease-out-quart focus:border-primary"
             />
           </div>
           {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
           )}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+            className="mt-1 inline-flex items-center justify-center rounded-control bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors duration-200 ease-out-quart hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? "Logging in…" : "Log in"}
           </button>
         </form>
-        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-5 text-sm text-muted">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="font-medium underline">
+          <Link
+            href="/signup"
+            className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
+          >
             Sign up
           </Link>
         </p>

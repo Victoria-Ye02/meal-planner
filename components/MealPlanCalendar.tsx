@@ -81,9 +81,7 @@ export function MealPlanCalendar({
   savedRecipes,
 }: MealPlanCalendarProps) {
   const [entries, setEntries] = useState<MealPlanEntryData[]>(initialEntries);
-  const [slotStates, setSlotStates] = useState<Record<string, SlotUiState>>(
-    {},
-  );
+  const [slotStates, setSlotStates] = useState<Record<string, SlotUiState>>({});
 
   function getSlotState(key: string): SlotUiState {
     return slotStates[key] ?? DEFAULT_SLOT_STATE;
@@ -199,19 +197,19 @@ export function MealPlanCalendar({
   return (
     <div className="flex flex-col gap-4">
       {!hasSavedRecipes && (
-        <div className="rounded-md border border-dashed border-zinc-300 p-4 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <div className="rounded-card border border-dashed border-border bg-surface p-4 text-sm text-muted">
           You haven&apos;t saved any recipes yet, so there&apos;s nothing to
           assign to a slot.{" "}
           <Link
             href="/generate"
-            className="font-medium text-zinc-900 underline dark:text-zinc-50"
+            className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
           >
             Generate a recipe
           </Link>{" "}
           or check your{" "}
           <Link
             href="/favorites"
-            className="font-medium text-zinc-900 underline dark:text-zinc-50"
+            className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
           >
             favorites
           </Link>
@@ -219,17 +217,21 @@ export function MealPlanCalendar({
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <p className="text-xs text-muted sm:hidden" aria-hidden="true">
+        Scroll right to see Lunch &amp; Dinner →
+      </p>
+
+      <div className="overflow-x-auto rounded-card border border-border bg-surface shadow-sm">
         <table className="w-full min-w-[640px] border-collapse text-sm">
           <thead>
             <tr>
-              <th className="w-32 border-b border-zinc-200 p-2 text-left font-medium text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+              <th className="w-32 border-b border-border bg-surface-2 p-3 text-left font-medium text-muted">
                 Day
               </th>
               {MEAL_TYPES.map((mealType) => (
                 <th
                   key={mealType.value}
-                  className="border-b border-zinc-200 p-2 text-left font-medium text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"
+                  className="border-b border-border bg-surface-2 p-3 text-left font-medium text-muted"
                 >
                   {mealType.label}
                 </th>
@@ -239,13 +241,9 @@ export function MealPlanCalendar({
           <tbody>
             {days.map((day) => (
               <tr key={day.dayOfWeek}>
-                <td className="border-b border-zinc-100 p-2 align-top dark:border-zinc-900">
-                  <div className="font-medium text-zinc-900 dark:text-zinc-50">
-                    {day.label}
-                  </div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-500">
-                    {day.dateLabel}
-                  </div>
+                <td className="border-b border-border p-3 align-top">
+                  <div className="font-medium text-foreground">{day.label}</div>
+                  <div className="text-xs text-muted">{day.dateLabel}</div>
                 </td>
                 {MEAL_TYPES.map((mealType) => {
                   const key = slotKey(day.dayOfWeek, mealType.value);
@@ -255,11 +253,11 @@ export function MealPlanCalendar({
                   return (
                     <td
                       key={key}
-                      className="border-b border-zinc-100 p-2 align-top dark:border-zinc-900"
+                      className="border-b border-border p-3 align-top transition-colors duration-200 ease-out-quart hover:bg-surface-2/50"
                     >
                       {entry ? (
-                        <div className="flex flex-col items-start gap-1">
-                          <span className="text-zinc-900 dark:text-zinc-50">
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span className="text-foreground">
                             {entry.recipeTitle}
                           </span>
                           <button
@@ -268,13 +266,13 @@ export function MealPlanCalendar({
                               handleRemove(day.dayOfWeek, mealType.value)
                             }
                             disabled={state.isSubmitting}
-                            className="rounded-md border border-zinc-300 px-2 py-0.5 text-xs font-medium text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+                            className="rounded-control border border-border px-2 py-0.5 text-xs font-medium text-foreground transition-colors duration-200 ease-out-quart hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {state.isSubmitting ? "Removing…" : "Remove"}
                           </button>
                         </div>
                       ) : hasSavedRecipes ? (
-                        <div className="flex flex-col items-start gap-1">
+                        <div className="flex flex-col items-start gap-1.5">
                           <select
                             value={state.selectedRecipeId}
                             onChange={(event) =>
@@ -283,7 +281,7 @@ export function MealPlanCalendar({
                               })
                             }
                             disabled={state.isSubmitting}
-                            className="w-full max-w-[10rem] rounded-md border border-zinc-300 bg-transparent p-1 text-xs text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+                            className="w-full max-w-[10rem] rounded-control border border-border bg-background p-1 text-xs text-foreground transition-colors duration-200 ease-out-quart focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <option value="">Pick a recipe…</option>
                             {savedRecipes.map((recipe) => (
@@ -300,22 +298,17 @@ export function MealPlanCalendar({
                             disabled={
                               state.isSubmitting || !state.selectedRecipeId
                             }
-                            className="rounded-md bg-zinc-900 px-2 py-0.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+                            className="rounded-control bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground transition-colors duration-200 ease-out-quart hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {state.isSubmitting ? "Assigning…" : "Assign"}
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-zinc-400 dark:text-zinc-600">
-                          —
-                        </span>
+                        <span className="text-xs text-muted">—</span>
                       )}
 
                       {state.error && (
-                        <p
-                          role="alert"
-                          className="mt-1 text-xs text-red-600 dark:text-red-400"
-                        >
+                        <p role="alert" className="mt-1 text-xs text-danger">
                           {state.error}
                         </p>
                       )}

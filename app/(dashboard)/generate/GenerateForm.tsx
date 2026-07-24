@@ -278,7 +278,7 @@ export function GenerateForm() {
         />
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          <legend className="text-sm font-medium text-foreground">
             Dietary preferences (optional)
           </legend>
           <div className="flex flex-wrap gap-2">
@@ -290,10 +290,10 @@ export function GenerateForm() {
                   type="button"
                   onClick={() => toggleDietaryPreference(preference)}
                   aria-pressed={isSelected}
-                  className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                  className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors duration-200 ease-out-quart ${
                     isSelected
-                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                      : "border-zinc-300 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border text-foreground hover:bg-surface-2"
                   }`}
                 >
                   {preference}
@@ -304,7 +304,7 @@ export function GenerateForm() {
         </fieldset>
 
         {validationError && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          <p role="alert" className="text-sm text-danger">
             {validationError}
           </p>
         )}
@@ -312,7 +312,7 @@ export function GenerateForm() {
         <button
           type="submit"
           disabled={!canSubmit || isSubmitting}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+          className="inline-flex items-center justify-center rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors duration-200 ease-out-quart hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? "Generating…" : "Generate recipes"}
         </button>
@@ -321,10 +321,10 @@ export function GenerateForm() {
       {isSubmitting && (
         <div
           role="status"
-          className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"
+          className="flex items-center gap-2 text-sm text-muted"
         >
           <svg
-            className="h-5 w-5 animate-spin text-zinc-500 dark:text-zinc-400"
+            className="h-5 w-5 animate-spin text-primary"
             viewBox="0 0 24 24"
             fill="none"
             aria-hidden="true"
@@ -350,13 +350,13 @@ export function GenerateForm() {
       {requestError && !isSubmitting && (
         <div
           role="alert"
-          className="flex flex-col items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+          className="flex flex-col items-start gap-3 rounded-card border border-danger/30 bg-danger/10 p-4 text-sm text-danger"
         >
           <p>{requestError}</p>
           <button
             type="button"
             onClick={handleRetry}
-            className="rounded-md border border-red-300 px-3 py-1 text-sm font-medium text-red-700 dark:border-red-800 dark:text-red-400"
+            className="rounded-control border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger transition-colors duration-200 ease-out-quart hover:bg-danger/10"
           >
             Try again
           </button>
@@ -364,7 +364,7 @@ export function GenerateForm() {
       )}
 
       {recipes && recipes.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {recipes.map((recipe, index) => {
             const state = saveStates[index] ?? DEFAULT_SAVE_STATE;
             return (
