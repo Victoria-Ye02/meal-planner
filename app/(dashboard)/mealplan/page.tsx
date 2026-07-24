@@ -89,6 +89,7 @@ export default async function MealPlanPage() {
     ({ recipe }) => ({
       id: recipe.id,
       title: recipe.title,
+      ingredients: recipe.ingredients,
     }),
   );
 
@@ -98,6 +99,7 @@ export default async function MealPlanPage() {
     mealType: entry.mealType,
     recipeId: entry.recipeId,
     recipeTitle: entry.recipe.title,
+    recipeIngredients: entry.recipe.ingredients,
   }));
 
   const days: MealPlanDay[] = DAY_LABELS.map((label, dayOfWeek) => {

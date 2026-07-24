@@ -1,23 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { MealType } from "@/app/generated/prisma/enums";
+import { buildShoppingList } from "@/lib/shoppingList";
 
 /** Recipe the user can pick from when assigning a slot — always a saved recipe. */
 export type SavedRecipeOption = {
   id: string;
   title: string;
+  ingredients: string[];
 };
 
-/** One filled `(dayOfWeek, mealType)` slot, with the recipe title already joined in. */
+/** One filled `(dayOfWeek, mealType)` slot, with the recipe title/ingredients already joined in. */
 export type MealPlanEntryData = {
   id: string;
   dayOfWeek: number;
   mealType: MealType;
   recipeId: string;
   recipeTitle: string;
+  recipeIngredients: string[];
 };
 
 /** A single day of the 7-day grid: its `dayOfWeek` offset plus display labels. */
@@ -82,6 +85,28 @@ export function MealPlanCalendar({
 }: MealPlanCalendarProps) {
   const [entries, setEntries] = useState<MealPlanEntryData[]>(initialEntries);
   const [slotStates, setSlotStates] = useState<Record<string, SlotUiState>>({});
+  const [showShoppingList, setShowShoppingList] = useState(false);
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+
+  const shoppingList = useMemo(
+    () =>
+      buildShoppingList(
+        entries.map((entry) => ({ ingredients: entry.recipeIngredients })),
+      ),
+    [entries],
+  );
+
+  function toggleChecked(itemId: string) {
+    setCheckedItems((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }
 
   function getSlotState(key: string): SlotUiState {
     return slotStates[key] ?? DEFAULT_SLOT_STATE;
@@ -141,6 +166,7 @@ export function MealPlanCalendar({
           mealType,
           recipeId,
           recipeTitle: recipe.title,
+          recipeIngredients: recipe.ingredients,
         },
       ]);
       patchSlotState(key, {
@@ -196,6 +222,64 @@ export function MealPlanCalendar({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setShowShoppingList((current) => !current)}
+          disabled={entries.length === 0}
+          className="inline-flex items-center justify-center rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors duration-200 ease-out-quart hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {showShoppingList ? "Hide shopping list" : "Generate shopping list"}
+        </button>
+        {entries.length === 0 && (
+          <span className="text-xs text-muted">
+            Assign a recipe to a slot first.
+          </span>
+        )}
+      </div>
+
+      {showShoppingList && (
+        <div className="rounded-card border border-border bg-surface p-5 shadow-sm">
+          <h2 className="font-display text-lg font-semibold text-foreground">
+            Shopping list
+          </h2>
+          <p className="mt-1 text-xs text-muted">
+            Combined ingredients from every recipe assigned this week.
+          </p>
+          {shoppingList.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">Nothing to shop for yet.</p>
+          ) : (
+            <ul className="mt-4 flex flex-col gap-2">
+              {shoppingList.map((item) => {
+                const isChecked = checkedItems.has(item.id);
+                return (
+                  <li key={item.id}>
+                    <label className="flex cursor-pointer items-center gap-3 rounded-control px-2 py-1.5 transition-colors duration-200 ease-out-quart hover:bg-surface-2">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleChecked(item.id)}
+                        className="h-4 w-4 shrink-0 accent-primary"
+                      />
+                      <span
+                        className={
+                          isChecked
+                            ? "text-sm text-muted line-through"
+                            : "text-sm text-foreground"
+                        }
+                      >
+                        {item.detail ? `${item.detail} ` : ""}
+                        {item.name}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
       {!hasSavedRecipes && (
         <div className="rounded-card border border-dashed border-border bg-surface p-4 text-sm text-muted">
           You haven&apos;t saved any recipes yet, so there&apos;s nothing to
