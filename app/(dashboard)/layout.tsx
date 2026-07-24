@@ -58,6 +58,12 @@ export default async function DashboardLayout({
             >
               Meal plan
             </Link>
+            <Link
+              href="/assistant"
+              className="rounded-control px-3 py-1.5 text-muted transition-colors duration-200 ease-out-quart hover:bg-surface-2 hover:text-foreground"
+            >
+              Assistant
+            </Link>
             <form
               action={async () => {
                 "use server";
