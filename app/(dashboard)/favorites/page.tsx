@@ -31,12 +31,12 @@ export default async function FavoritesPage() {
   }));
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-12 sm:py-16">
+    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-8 sm:py-10">
       <div className="w-full max-w-4xl">
         <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           Your favorites
         </h1>
-        <p className="mb-8 text-muted">
+        <p className="mb-6 text-muted">
           Recipes you&apos;ve saved, newest first.
         </p>
         <FavoritesList initialFavorites={favorites} />

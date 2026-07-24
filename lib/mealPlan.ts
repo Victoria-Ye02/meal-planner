@@ -31,3 +31,23 @@ export function normalizeWeekStartDate(date: Date): Date {
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
   );
 }
+
+/**
+ * Computes UTC midnight of the Sunday that starts "this week", relative to
+ * `now`. Must land on a Sunday specifically (not just any day) because
+ * `dayOfWeek` is documented in lib/validations/mealPlan.ts as an offset in
+ * days from `weekStartDate` — 0 = Sunday ... 6 = Saturday, matching
+ * `Date.prototype.getUTCDay()`. Runs through `normalizeWeekStartDate` so
+ * this always matches however an existing plan row for the week was stored.
+ */
+export function getCurrentWeekStartDate(now: Date): Date {
+  const dayOfWeek = now.getUTCDay();
+  const sunday = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - dayOfWeek,
+    ),
+  );
+  return normalizeWeekStartDate(sunday);
+}

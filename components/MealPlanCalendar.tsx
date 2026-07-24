@@ -281,23 +281,29 @@ export function MealPlanCalendar({
       )}
 
       {!hasSavedRecipes && (
-        <div className="rounded-card border border-dashed border-border bg-surface p-4 text-sm text-muted">
-          You haven&apos;t saved any recipes yet, so there&apos;s nothing to
-          assign to a slot.{" "}
-          <Link
-            href="/generate"
-            className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
-          >
-            Generate a recipe
-          </Link>{" "}
-          or check your{" "}
-          <Link
-            href="/favorites"
-            className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
-          >
-            favorites
-          </Link>
-          , then save one to get started.
+        <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-border bg-surface p-8 text-center">
+          <span className="text-2xl" aria-hidden="true">
+            📋
+          </span>
+          <p className="font-display text-base font-semibold text-foreground">
+            No saved recipes to plan with yet
+          </p>
+          <p className="max-w-sm text-sm text-muted">
+            <Link
+              href="/generate"
+              className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
+            >
+              Generate a recipe
+            </Link>{" "}
+            or check your{" "}
+            <Link
+              href="/favorites"
+              className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
+            >
+              favorites
+            </Link>
+            , then save one to assign it to a slot below.
+          </p>
         </div>
       )}
 

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { normalizeWeekStartDate } from "@/lib/mealPlan";
+import { getCurrentWeekStartDate } from "@/lib/mealPlan";
 import {
   MealPlanCalendar,
   type MealPlanDay,
@@ -19,29 +19,6 @@ const DAY_LABELS = [
   "Friday",
   "Saturday",
 ];
-
-/**
- * Computes UTC midnight of the Sunday that starts "this week", relative to
- * `now`. This must land on a Sunday specifically (not just any day) because
- * `dayOfWeek` is documented in lib/validations/mealPlan.ts as an offset in
- * days from `weekStartDate` — 0 = Sunday ... 6 = Saturday, matching
- * `Date.prototype.getUTCDay()` — so `weekStartDate + dayOfWeek days` only
- * lines up with the right calendar date if `weekStartDate` itself is a
- * Sunday. Also runs through `normalizeWeekStartDate` (the same helper
- * POST/GET /api/mealplan use) so this always matches however an existing
- * plan row for the week was stored.
- */
-function getCurrentWeekStartDate(now: Date): Date {
-  const dayOfWeek = now.getUTCDay();
-  const sunday = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() - dayOfWeek,
-    ),
-  );
-  return normalizeWeekStartDate(sunday);
-}
 
 export default async function MealPlanPage() {
   const session = await auth();
@@ -117,12 +94,12 @@ export default async function MealPlanPage() {
   });
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-12 sm:py-16">
+    <div className="flex flex-1 flex-col items-center gap-6 px-6 py-8 sm:py-10">
       <div className="w-full max-w-5xl">
         <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           This week&apos;s meal plan
         </h1>
-        <p className="mb-8 text-muted">
+        <p className="mb-6 text-muted">
           Assign a saved recipe to any day and meal below.
         </p>
         <MealPlanCalendar
