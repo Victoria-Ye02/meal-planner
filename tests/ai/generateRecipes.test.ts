@@ -161,6 +161,61 @@ describe("generateRecipes", () => {
     expect(result.success).toBe(false);
   });
 
+  it("returns a typed error when the response body can't be parsed as JSON at all", async () => {
+    // Distinct from "malformed JSON in the AI's `content` string" below:
+    // this is the outer HTTP response body itself failing `response.json()`
+    // (e.g. OpenRouter returning a 200 with a non-JSON body).
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError("Unexpected token in JSON");
+      },
+    } as unknown as Response);
+
+    const result = await generateRecipes({
+      ingredients: ["egg"],
+      preferences: [],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toMatch(/unreadable response/i);
+    }
+  });
+
+  it("returns a typed error when the response has no message content", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({ choices: [{ message: {} }] }),
+    );
+
+    const result = await generateRecipes({
+      ingredients: ["egg"],
+      preferences: [],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toMatch(/no content/i);
+    }
+  });
+
+  it("returns a typed error when choices is missing entirely", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({}),
+    );
+
+    const result = await generateRecipes({
+      ingredients: ["egg"],
+      preferences: [],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toMatch(/no content/i);
+    }
+  });
+
   it("returns a typed error on a non-2xx HTTP response", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       mockFetchResponse({ error: "rate limited" }, { ok: false, status: 429 }),
