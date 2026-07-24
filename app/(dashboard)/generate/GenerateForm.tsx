@@ -48,6 +48,50 @@ function isRecipesResponse(value: unknown): value is { recipes: Recipe[] } {
   return Array.isArray(candidate.recipes) && candidate.recipes.every(isRecipe);
 }
 
+/** Narrow runtime check for the `{ recipeId: string }` body POST /api/recipes/save returns. */
+function isSaveResponse(value: unknown): value is { recipeId: string } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.recipeId === "string" && candidate.recipeId.length > 0
+  );
+}
+
+/**
+ * Per-card save state, keyed by the recipe's index in the current
+ * `recipes` array (recipes have no id of their own until saved — see
+ * `Recipe` in lib/ai/generateRecipes.ts — so the array index is the
+ * stable handle for the duration of one generation result).
+ */
+type SaveState = {
+  recipeId: string | null;
+  saved: boolean;
+  isSaving: boolean;
+  error: string | null;
+};
+
+const DEFAULT_SAVE_STATE: SaveState = {
+  recipeId: null,
+  saved: false,
+  isSaving: false,
+  error: null,
+};
+
+/** Extracts a human-readable error message from a JSON error body, if present. */
+function extractErrorMessage(body: unknown, fallback: string): string {
+  if (
+    body &&
+    typeof body === "object" &&
+    "error" in body &&
+    typeof (body as { error: unknown }).error === "string"
+  ) {
+    return (body as { error: string }).error;
+  }
+  return fallback;
+}
+
 /**
  * Collects ingredients and dietary preferences, submits them to
  * POST /api/recipes/generate, and renders the result: a loading indicator
@@ -61,6 +105,7 @@ export function GenerateForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<Recipe[] | null>(null);
+  const [saveStates, setSaveStates] = useState<Record<number, SaveState>>({});
 
   function handleAddIngredient(ingredient: string) {
     setIngredients((current) => [...current, ingredient]);
@@ -115,10 +160,89 @@ export function GenerateForm() {
       }
 
       setRecipes(body.recipes);
+      // A fresh set of results has no relationship to the previous one's
+      // save state (different recipes, different indices) — start clean.
+      setSaveStates({});
     } catch {
       setRequestError("Failed to reach the server. Please try again.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  /**
+   * Toggles save/unsave for the recipe at `index`. Saving POSTs the full
+   * recipe payload to /api/recipes/save (the recipe has no id yet — it's
+   * only ever existed as AI output in the browser — so the server
+   * find-or-creates a `Recipe` row and hands back its id). Unsaving DELETEs
+   * /api/recipes/save/[recipeId] using the id captured from that save.
+   * Errors surface inline on the card rather than failing silently, so a
+   * failed save never looks like it succeeded.
+   */
+  async function handleToggleSave(index: number, recipe: Recipe) {
+    const state = saveStates[index] ?? DEFAULT_SAVE_STATE;
+
+    setSaveStates((current) => ({
+      ...current,
+      [index]: { ...state, isSaving: true, error: null },
+    }));
+
+    try {
+      if (state.saved && state.recipeId) {
+        const response = await fetch(`/api/recipes/save/${state.recipeId}`, {
+          method: "DELETE",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to unsave recipe. Please try again.");
+        }
+
+        setSaveStates((current) => ({
+          ...current,
+          [index]: { ...DEFAULT_SAVE_STATE },
+        }));
+        return;
+      }
+
+      const response = await fetch("/api/recipes/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(recipe),
+      });
+      const body: unknown = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          extractErrorMessage(body, "Failed to save recipe. Please try again."),
+        );
+      }
+      if (!isSaveResponse(body)) {
+        throw new Error(
+          "Received an unexpected response from the server. Please try again.",
+        );
+      }
+
+      setSaveStates((current) => ({
+        ...current,
+        [index]: {
+          recipeId: body.recipeId,
+          saved: true,
+          isSaving: false,
+          error: null,
+        },
+      }));
+    } catch (err) {
+      setSaveStates((current) => ({
+        ...current,
+        [index]: {
+          ...state,
+          isSaving: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Failed to reach the server. Please try again.",
+        },
+      }));
     }
   }
 
@@ -241,9 +365,19 @@ export function GenerateForm() {
 
       {recipes && recipes.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {recipes.map((recipe, index) => (
-            <RecipeCard key={`${index}-${recipe.title}`} recipe={recipe} />
-          ))}
+          {recipes.map((recipe, index) => {
+            const state = saveStates[index] ?? DEFAULT_SAVE_STATE;
+            return (
+              <RecipeCard
+                key={`${index}-${recipe.title}`}
+                recipe={recipe}
+                saved={state.saved}
+                isSaving={state.isSaving}
+                saveError={state.error}
+                onToggleSave={() => handleToggleSave(index, recipe)}
+              />
+            );
+          })}
         </div>
       )}
     </div>
