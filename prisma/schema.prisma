@@ -19,9 +19,23 @@ model User {
   allergies          String[]
   createdAt          DateTime @default(now())
 
-  recipes      Recipe[]
-  savedRecipes SavedRecipe[]
-  mealPlans    MealPlan[]
+  recipes          Recipe[]
+  savedRecipes     SavedRecipe[]
+  mealPlans        MealPlan[]
+  aiGenerationLogs AiGenerationLog[]
+}
+
+/// One row per AI recipe-generation call. Used only to enforce a per-user
+/// daily rate limit (count rows created in the last 24h for a user) — see
+/// lib/rateLimit.ts and plan.md's "simple per-user daily cap" decision.
+model AiGenerationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Recipe {

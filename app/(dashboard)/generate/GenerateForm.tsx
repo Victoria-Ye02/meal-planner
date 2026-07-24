@@ -19,17 +19,18 @@ type GenerateFormData = {
 };
 
 /**
- * Collects ingredients and dietary preferences for AI recipe generation.
- * There is no generation endpoint yet (that lands in Task 6), so submit is
- * a placeholder that just logs the collected data.
+ * Collects ingredients and dietary preferences for AI recipe generation and
+ * submits them to POST /api/recipes/generate. Rendering here is
+ * deliberately minimal (raw JSON dump) — real result cards, loading, and
+ * error UI land in Task 7.
  */
 export function GenerateForm() {
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [dietaryPreferences, setDietaryPreferences] = useState<string[]>([]);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [lastSubmitted, setLastSubmitted] = useState<GenerateFormData | null>(
-    null,
-  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [result, setResult] = useState<unknown>(null);
 
   function handleAddIngredient(ingredient: string) {
     setIngredients((current) => [...current, ingredient]);
@@ -50,7 +51,7 @@ export function GenerateForm() {
     );
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (ingredients.length === 0) {
@@ -59,11 +60,38 @@ export function GenerateForm() {
     }
 
     setValidationError(null);
+    setRequestError(null);
+    setResult(null);
 
     const formData: GenerateFormData = { ingredients, dietaryPreferences };
-    // Placeholder submit — the real generation API lands in Task 6.
-    console.log("Generate recipe request", formData);
-    setLastSubmitted(formData);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/recipes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const body: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          body &&
+          typeof body === "object" &&
+          "error" in body &&
+          typeof (body as { error: unknown }).error === "string"
+            ? (body as { error: string }).error
+            : "Failed to generate recipes. Please try again.";
+        setRequestError(message);
+        return;
+      }
+
+      setResult(body);
+    } catch {
+      setRequestError("Failed to reach the server. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   const canSubmit = ingredients.length > 0;
@@ -113,16 +141,24 @@ export function GenerateForm() {
 
       <button
         type="submit"
-        disabled={!canSubmit}
+        disabled={!canSubmit || isSubmitting}
         className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
       >
-        Generate recipes
+        {isSubmitting ? "Generating…" : "Generate recipes"}
       </button>
 
-      {lastSubmitted && (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Request captured — recipe generation is coming in a future task.
+      {requestError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {requestError}
         </p>
+      )}
+
+      {/* Minimal raw-JSON rendering to prove the endpoint wiring works
+          end-to-end. Task 7 replaces this with RecipeCard/loading/error UI. */}
+      {result !== null && (
+        <pre className="max-h-96 overflow-auto rounded-md bg-zinc-100 p-3 text-xs text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50">
+          {JSON.stringify(result, null, 2)}
+        </pre>
       )}
     </form>
   );
