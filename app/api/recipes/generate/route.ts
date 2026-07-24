@@ -2,16 +2,24 @@ import { NextResponse } from "next/server";
 
 import { generateRecipes } from "@/lib/ai/generateRecipes";
 import { auth } from "@/lib/auth";
-import { checkRateLimit, recordGeneration } from "@/lib/rateLimit";
+import { releaseGenerationSlot, reserveGenerationSlot } from "@/lib/rateLimit";
 import { generateRecipesRequestSchema } from "@/lib/validations/generate";
 
 /**
  * POST /api/recipes/generate
  *
- * Auth -> validate -> rate-limit -> call the AI wrapper -> return recipes.
- * The AI call itself (network/timeout/malformed-response handling) is
- * entirely Task 5's responsibility (lib/ai/generateRecipes.ts); this route
- * only translates its typed `{success, ...}` result into an HTTP response.
+ * Auth -> validate -> atomically reserve a rate-limit slot -> call the AI
+ * wrapper -> return recipes.
+ *
+ * The rate-limit slot is reserved (count-check + insert, in one
+ * transaction) *before* the AI call, not after a successful one, so
+ * concurrent requests from the same user can't all observe the same
+ * "under cap" count during the AI call's ~20s window. If the AI call then
+ * fails, the reservation is rolled back so only successful generations
+ * count against the user's daily cap. The AI call itself
+ * (network/timeout/malformed-response handling) is entirely Task 5's
+ * responsibility (lib/ai/generateRecipes.ts); this route only translates
+ * its typed `{success, ...}` result into an HTTP response.
  */
 export async function POST(request: Request) {
   const session = await auth();
@@ -35,7 +43,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const rateLimit = await checkRateLimit(userId);
+  const rateLimit = await reserveGenerationSlot(userId);
   if (!rateLimit.allowed) {
     return NextResponse.json(
       {
@@ -52,12 +60,13 @@ export async function POST(request: Request) {
   });
 
   if (!result.success) {
+    // Roll back the reservation so a failed/misconfigured attempt doesn't
+    // burn the user's quota — only successful generations should count.
+    if (rateLimit.logId) {
+      await releaseGenerationSlot(rateLimit.logId);
+    }
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
-
-  // Only record usage against the user's daily cap once a generation call
-  // actually succeeds, so failed/misconfigured attempts don't burn quota.
-  await recordGeneration(userId);
 
   return NextResponse.json({ recipes: result.recipes }, { status: 200 });
 }

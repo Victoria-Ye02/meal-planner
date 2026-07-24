@@ -9,23 +9,26 @@ vi.mock("@/lib/ai/generateRecipes", () => ({
 }));
 
 vi.mock("@/lib/rateLimit", () => ({
-  checkRateLimit: vi.fn(),
-  recordGeneration: vi.fn(),
+  reserveGenerationSlot: vi.fn(),
+  releaseGenerationSlot: vi.fn(),
 }));
 
 import { generateRecipes } from "../../lib/ai/generateRecipes";
 import { auth } from "../../lib/auth";
-import { checkRateLimit, recordGeneration } from "../../lib/rateLimit";
+import {
+  releaseGenerationSlot,
+  reserveGenerationSlot,
+} from "../../lib/rateLimit";
 import { POST } from "../../app/api/recipes/generate/route";
 
 const mockAuth = auth as unknown as ReturnType<typeof vi.fn>;
 const mockGenerateRecipes = generateRecipes as unknown as ReturnType<
   typeof vi.fn
 >;
-const mockCheckRateLimit = checkRateLimit as unknown as ReturnType<
+const mockReserveGenerationSlot = reserveGenerationSlot as unknown as ReturnType<
   typeof vi.fn
 >;
-const mockRecordGeneration = recordGeneration as unknown as ReturnType<
+const mockReleaseGenerationSlot = releaseGenerationSlot as unknown as ReturnType<
   typeof vi.fn
 >;
 
@@ -54,20 +57,21 @@ describe("POST /api/recipes/generate", () => {
   beforeEach(() => {
     mockAuth.mockReset();
     mockGenerateRecipes.mockReset();
-    mockCheckRateLimit.mockReset();
-    mockRecordGeneration.mockReset();
+    mockReserveGenerationSlot.mockReset();
+    mockReleaseGenerationSlot.mockReset();
 
     mockAuth.mockResolvedValue(AUTHED_SESSION);
-    mockCheckRateLimit.mockResolvedValue({
+    mockReserveGenerationSlot.mockResolvedValue({
       allowed: true,
       remaining: 19,
       limit: 20,
+      logId: "log-1",
     });
     mockGenerateRecipes.mockResolvedValue({
       success: true,
       recipes: SAMPLE_RECIPES,
     });
-    mockRecordGeneration.mockResolvedValue(undefined);
+    mockReleaseGenerationSlot.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -87,8 +91,10 @@ describe("POST /api/recipes/generate", () => {
       ingredients: ["pasta", "garlic"],
       preferences: ["vegetarian"],
     });
-    // Usage is only recorded once generation actually succeeds.
-    expect(mockRecordGeneration).toHaveBeenCalledWith("user-1");
+    // The rate-limit slot was reserved before the AI call, and a
+    // successful generation should not roll it back.
+    expect(mockReserveGenerationSlot).toHaveBeenCalledWith("user-1");
+    expect(mockReleaseGenerationSlot).not.toHaveBeenCalled();
   });
 
   it("returns 401 when there is no session", async () => {
@@ -98,7 +104,7 @@ describe("POST /api/recipes/generate", () => {
 
     expect(response.status).toBe(401);
     expect(mockGenerateRecipes).not.toHaveBeenCalled();
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockReserveGenerationSlot).not.toHaveBeenCalled();
   });
 
   it("returns 401 when the session has no user id", async () => {
@@ -115,7 +121,7 @@ describe("POST /api/recipes/generate", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockReserveGenerationSlot).not.toHaveBeenCalled();
     expect(mockGenerateRecipes).not.toHaveBeenCalled();
   });
 
@@ -138,7 +144,7 @@ describe("POST /api/recipes/generate", () => {
   });
 
   it("returns 429 when the user is over their daily rate limit", async () => {
-    mockCheckRateLimit.mockResolvedValue({
+    mockReserveGenerationSlot.mockResolvedValue({
       allowed: false,
       remaining: 0,
       limit: 20,
@@ -148,10 +154,26 @@ describe("POST /api/recipes/generate", () => {
 
     expect(response.status).toBe(429);
     expect(mockGenerateRecipes).not.toHaveBeenCalled();
-    expect(mockRecordGeneration).not.toHaveBeenCalled();
+    expect(mockReleaseGenerationSlot).not.toHaveBeenCalled();
   });
 
-  it("returns 502 with a clean error (not a crash) when the AI call fails", async () => {
+  it("returns 429 when the reservation is rejected due to a concurrent conflict (fail closed)", async () => {
+    // reserveGenerationSlot fails closed internally on a Postgres
+    // serialization failure from a racing concurrent transaction, so from
+    // the route's perspective this just looks like `allowed: false`.
+    mockReserveGenerationSlot.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      limit: 20,
+    });
+
+    const response = await POST(makeRequest(VALID_BODY));
+
+    expect(response.status).toBe(429);
+    expect(mockGenerateRecipes).not.toHaveBeenCalled();
+  });
+
+  it("returns 502 with a clean error (not a crash) when the AI call fails, and releases the reserved slot", async () => {
     mockGenerateRecipes.mockResolvedValue({
       success: false,
       error: "AI recipe generation service returned malformed JSON.",
@@ -162,7 +184,9 @@ describe("POST /api/recipes/generate", () => {
     expect(response.status).toBe(502);
     const json = await response.json();
     expect(json.error).toMatch(/malformed JSON/i);
-    // A failed generation should not count against the user's daily cap.
-    expect(mockRecordGeneration).not.toHaveBeenCalled();
+    // The slot was reserved before the AI call (to close the race), so a
+    // failed generation must explicitly roll it back to avoid burning the
+    // user's daily cap on a failed attempt.
+    expect(mockReleaseGenerationSlot).toHaveBeenCalledWith("log-1");
   });
 });
