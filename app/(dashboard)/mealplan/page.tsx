@@ -3,22 +3,13 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getCurrentWeekStartDate } from "@/lib/mealPlan";
+import { DAY_LABELS } from "@/lib/validations/mealPlan";
 import {
   MealPlanCalendar,
   type MealPlanDay,
   type MealPlanEntryData,
   type SavedRecipeOption,
 } from "@/components/MealPlanCalendar";
-
-const DAY_LABELS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
 
 export default async function MealPlanPage() {
   const session = await auth();

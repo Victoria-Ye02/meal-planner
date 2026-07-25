@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { askAssistant } from "@/lib/ai/chatAssistant";
+import { assignRecipeToMealPlan } from "@/lib/ai/assignRecipeToMealPlan";
 import { buildAssistantSystemPrompt } from "@/lib/ai/assistantPrompt";
+import {
+  ASSIGN_RECIPE_TOOL,
+  ASSIGN_RECIPE_TOOL_NAME,
+} from "@/lib/ai/assistantTools";
+import { askAssistant, type RequestedToolCall } from "@/lib/ai/chatAssistant";
 import { generateEmbedding } from "@/lib/ai/embeddings";
 import { findSimilarSavedRecipes } from "@/lib/ai/vectorSearch";
 import { auth } from "@/lib/auth";
@@ -9,37 +14,72 @@ import { prisma } from "@/lib/db";
 import { getCurrentWeekStartDate } from "@/lib/mealPlan";
 import { releaseGenerationSlot, reserveGenerationSlot } from "@/lib/rateLimit";
 import { assistantChatRequestSchema } from "@/lib/validations/assistant";
+import { upsertMealPlanEntryRequestSchema } from "@/lib/validations/mealPlan";
 
 /** How many saved recipes to retrieve via vector similarity search per message. */
 const SIMILAR_RECIPES_LIMIT = 5;
 
 /**
+ * Parses and validates one requested tool call's raw JSON arguments.
+ * `argumentsJson` comes from the model — untrusted input — so this goes
+ * through the same Zod schema PUT /api/mealplan/[planId]/entries uses for
+ * its own request body, not a bespoke/looser check.
+ */
+function parseToolCallArguments(call: RequestedToolCall) {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(call.argumentsJson);
+  } catch {
+    return { success: false as const, error: "Malformed tool call arguments." };
+  }
+
+  const parsed = upsertMealPlanEntryRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false as const,
+      error: "Invalid tool call arguments: " + parsed.error.message,
+    };
+  }
+
+  return { success: true as const, data: parsed.data };
+}
+
+/**
  * POST /api/assistant
  *
  * Auth -> validate -> rate-limit -> retrieve the user's own data -> ask the
- * AI -> return its reply.
+ * AI (with the meal-plan write tool available) -> if it requests a write,
+ * validate + execute it server-side and get a final confirmation reply ->
+ * return the reply (plus a structured mealPlanUpdate when a write happened).
+ *
+ * Write safety: the model is instructed (lib/ai/assistantPrompt.ts) to
+ * only call assign_recipe_to_meal_plan after the user has explicitly
+ * confirmed a suggestion in a prior turn — it must never auto-write on a
+ * first ask. That's a prompting-level gate, not a hard guarantee, so this
+ * route treats every tool call as untrusted regardless of what the prompt
+ * asked for: assignRecipeToMealPlan() re-verifies the recipe actually
+ * belongs to the requesting user (not just any valid recipe id the model
+ * might produce), the tool's arguments are schema-validated before use,
+ * and the tool has no planId/userId parameter at all — the route always
+ * resolves "the current week's plan for the authenticated user" itself,
+ * so nothing the model returns can target another user's data.
  *
  * Saved-recipe retrieval is vector search (pgvector, cosine distance via
  * lib/ai/vectorSearch.ts): the user's message is embedded, then the
  * `SIMILAR_RECIPES_LIMIT` closest saved recipes by embedding are fetched,
  * instead of the user's entire saved-recipe collection. If embedding the
  * query fails (embeddings API hiccup), this falls back to a direct fetch
- * of the user's saved recipes (capped at the same limit, newest first) so
- * one degraded dependency doesn't take the whole assistant down — vector
- * search is a retrieval-quality enhancement, not a hard requirement for
- * the feature to function.
+ * of the user's saved recipes (capped at the same limit, newest first).
  *
- * Meal plan retrieval is unchanged from the RAG-lite version: a direct
- * fetch, not vector search — at most 21 slots for one week, no benefit to
- * embedding-based retrieval at that size, and it's always fully relevant
- * context regardless of what the user asked.
+ * Meal plan retrieval (for context, not the write) is unchanged from the
+ * RAG-lite version: a direct fetch, not vector search.
  *
  * Rate limiting reuses `reserveGenerationSlot`/`releaseGenerationSlot` —
  * the same `AiGenerationLog`-backed daily cap Task 6's recipe-generation
- * endpoint uses. This is a deliberate reuse, not an oversight: adding a
- * second, assistant-only counter would need its own schema, and this
- * feature is scoped to add none. Assistant messages and recipe generations
- * therefore share one daily quota per user.
+ * endpoint uses. One shared quota per user across recipe generation and
+ * every assistant message, including the follow-up call after a tool use
+ * (still just one reserved slot per user-sent message, not one per model
+ * round-trip).
  *
  * Chat history is never persisted: the client resends the whole
  * conversation-so-far with every message, and this handler is otherwise
@@ -108,7 +148,8 @@ export async function POST(request: Request) {
           ),
     // Read-only lookup — never creates a MealPlan row as a side effect of
     // asking the assistant a question (same principle as the Generate
-    // page's stat row: `findFirst`, not `upsert`).
+    // page's stat row: `findFirst`, not `upsert`). The write tool, when
+    // actually used, creates the plan itself via assignRecipeToMealPlan().
     prisma.mealPlan.findFirst({
       where: { userId, weekStartDate: getCurrentWeekStartDate(new Date()) },
       include: { entries: { include: { recipe: true } } },
@@ -117,11 +158,14 @@ export async function POST(request: Request) {
   ]);
 
   const systemPrompt = buildAssistantSystemPrompt({
-    savedRecipes: savedRecipes.map(({ title, ingredients, instructions }) => ({
-      title,
-      ingredients,
-      instructions,
-    })),
+    savedRecipes: savedRecipes.map(
+      ({ recipeId, title, ingredients, instructions }) => ({
+        recipeId,
+        title,
+        ingredients,
+        instructions,
+      }),
+    ),
     totalSavedRecipeCount,
     mealPlanEntries: (weekPlan?.entries ?? []).map((entry) => ({
       dayOfWeek: entry.dayOfWeek,
@@ -130,19 +174,73 @@ export async function POST(request: Request) {
     })),
   });
 
-  const result = await askAssistant({
+  const conversation = [
+    ...history,
+    { role: "user" as const, content: message },
+  ];
+
+  const firstResult = await askAssistant({
     systemPrompt,
-    messages: [...history, { role: "user", content: message }],
+    messages: conversation,
+    tools: [ASSIGN_RECIPE_TOOL],
   });
 
-  if (!result.success) {
-    // Roll back the reservation so a failed/misconfigured attempt doesn't
-    // burn the user's shared daily quota.
+  if (!firstResult.success) {
     if (rateLimit.logId) {
       await releaseGenerationSlot(rateLimit.logId);
     }
-    return NextResponse.json({ error: result.error }, { status: 502 });
+    return NextResponse.json({ error: firstResult.error }, { status: 502 });
   }
 
-  return NextResponse.json({ reply: result.reply }, { status: 200 });
+  const toolCall = firstResult.toolCalls.find(
+    (call) => call.name === ASSIGN_RECIPE_TOOL_NAME,
+  );
+
+  if (!toolCall) {
+    return NextResponse.json({ reply: firstResult.reply }, { status: 200 });
+  }
+
+  // The model requested the write tool. Validate its arguments and the
+  // caller's ownership of the recipe before touching the database — see
+  // the "Write safety" note in this file's top comment.
+  const parsedArgs = parseToolCallArguments(toolCall);
+  const assignResult = parsedArgs.success
+    ? await assignRecipeToMealPlan({
+        userId,
+        recipeId: parsedArgs.data.recipeId,
+        dayOfWeek: parsedArgs.data.dayOfWeek,
+        mealType: parsedArgs.data.mealType,
+      })
+    : { success: false as const, error: parsedArgs.error };
+
+  const toolResultContent = JSON.stringify(assignResult);
+
+  const secondResult = await askAssistant({
+    systemPrompt,
+    messages: conversation,
+    toolResult: { call: toolCall, resultContent: toolResultContent },
+  });
+
+  if (!secondResult.success) {
+    if (rateLimit.logId) {
+      await releaseGenerationSlot(rateLimit.logId);
+    }
+    return NextResponse.json({ error: secondResult.error }, { status: 502 });
+  }
+
+  return NextResponse.json(
+    {
+      reply: secondResult.reply,
+      ...(assignResult.success
+        ? {
+            mealPlanUpdate: {
+              recipeTitle: assignResult.recipeTitle,
+              dayLabel: assignResult.dayLabel,
+              mealType: assignResult.mealType,
+            },
+          }
+        : {}),
+    },
+    { status: 200 },
+  );
 }

@@ -131,4 +131,156 @@ describe("askAssistant", () => {
       expect(result.error).not.toContain("test-api-key");
     }
   });
+
+  it("sends the tools array when provided", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({ choices: [{ message: { content: "ok" } }] }),
+    );
+    const tools = [
+      {
+        type: "function" as const,
+        function: {
+          name: "assign_recipe_to_meal_plan",
+          description: "desc",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ];
+
+    await askAssistant({
+      systemPrompt: "sys",
+      messages: [{ role: "user", content: "hi" }],
+      tools,
+    });
+
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const requestBody = JSON.parse(call[1].body);
+    expect(requestBody.tools).toEqual(tools);
+  });
+
+  it("does not include a tools key when none is provided", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({ choices: [{ message: { content: "ok" } }] }),
+    );
+
+    await askAssistant({
+      systemPrompt: "sys",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const requestBody = JSON.parse(call[1].body);
+    expect(requestBody.tools).toBeUndefined();
+  });
+
+  it("returns requested tool calls (parsed to a clean shape) when the model responds with tool_calls instead of text", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_123",
+                  type: "function",
+                  function: {
+                    name: "assign_recipe_to_meal_plan",
+                    arguments:
+                      '{"recipeId":"r1","dayOfWeek":0,"mealType":"dinner"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    const result = await askAssistant({
+      systemPrompt: "sys",
+      messages: [{ role: "user", content: "yes, assign it" }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.toolCalls).toEqual([
+        {
+          id: "call_123",
+          name: "assign_recipe_to_meal_plan",
+          argumentsJson: '{"recipeId":"r1","dayOfWeek":0,"mealType":"dinner"}',
+        },
+      ]);
+      expect(result.reply).toBe("");
+    }
+  });
+
+  it("returns an empty toolCalls array for a plain text reply", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({
+        choices: [{ message: { content: "just text" } }],
+      }),
+    );
+
+    const result = await askAssistant({
+      systemPrompt: "sys",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.toolCalls).toEqual([]);
+      expect(result.reply).toBe("just text");
+    }
+  });
+
+  it("builds the correct follow-up message sequence (assistant tool_calls turn + tool result turn) when toolResult is provided", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse({
+        choices: [{ message: { content: "Done! Assigned it." } }],
+      }),
+    );
+
+    const result = await askAssistant({
+      systemPrompt: "sys",
+      messages: [{ role: "user", content: "yes, assign it" }],
+      toolResult: {
+        call: {
+          id: "call_123",
+          name: "assign_recipe_to_meal_plan",
+          argumentsJson: '{"recipeId":"r1","dayOfWeek":0,"mealType":"dinner"}',
+        },
+        resultContent: '{"success":true,"recipeTitle":"Garlic Pasta"}',
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.reply).toBe("Done! Assigned it.");
+    }
+
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const requestBody = JSON.parse(call[1].body);
+    // system, user, assistant-with-tool-calls, tool-result
+    expect(requestBody.messages).toHaveLength(4);
+    expect(requestBody.messages[2]).toEqual({
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "call_123",
+          type: "function",
+          function: {
+            name: "assign_recipe_to_meal_plan",
+            arguments: '{"recipeId":"r1","dayOfWeek":0,"mealType":"dinner"}',
+          },
+        },
+      ],
+    });
+    expect(requestBody.messages[3]).toEqual({
+      role: "tool",
+      tool_call_id: "call_123",
+      content: '{"success":true,"recipeTitle":"Garlic Pasta"}',
+    });
+  });
 });

@@ -16,6 +16,10 @@ vi.mock("@/lib/ai/vectorSearch", () => ({
   findSimilarSavedRecipes: vi.fn(),
 }));
 
+vi.mock("@/lib/ai/assignRecipeToMealPlan", () => ({
+  assignRecipeToMealPlan: vi.fn(),
+}));
+
 vi.mock("@/lib/rateLimit", () => ({
   reserveGenerationSlot: vi.fn(),
   releaseGenerationSlot: vi.fn(),
@@ -33,6 +37,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+import { assignRecipeToMealPlan } from "../../lib/ai/assignRecipeToMealPlan";
 import { askAssistant } from "../../lib/ai/chatAssistant";
 import { generateEmbedding } from "../../lib/ai/embeddings";
 import { findSimilarSavedRecipes } from "../../lib/ai/vectorSearch";
@@ -51,6 +56,8 @@ const mockGenerateEmbedding = generateEmbedding as unknown as ReturnType<
 >;
 const mockFindSimilarSavedRecipes =
   findSimilarSavedRecipes as unknown as ReturnType<typeof vi.fn>;
+const mockAssignRecipeToMealPlan =
+  assignRecipeToMealPlan as unknown as ReturnType<typeof vi.fn>;
 const mockReserveGenerationSlot =
   reserveGenerationSlot as unknown as ReturnType<typeof vi.fn>;
 const mockReleaseGenerationSlot =
@@ -74,6 +81,11 @@ function makeRequest(body: unknown) {
 const AUTHED_SESSION = { user: { id: "user-1", email: "user@example.com" } };
 const VALID_BODY = { message: "What can I cook tonight?", history: [] };
 const SAMPLE_EMBEDDING = Array.from({ length: 1536 }, () => 0.01);
+const TEXT_REPLY = {
+  success: true,
+  reply: "You could make the pasta you saved.",
+  toolCalls: [],
+};
 
 describe("POST /api/assistant", () => {
   beforeEach(() => {
@@ -81,6 +93,7 @@ describe("POST /api/assistant", () => {
     mockAskAssistant.mockReset();
     mockGenerateEmbedding.mockReset();
     mockFindSimilarSavedRecipes.mockReset();
+    mockAssignRecipeToMealPlan.mockReset();
     mockReserveGenerationSlot.mockReset();
     mockReleaseGenerationSlot.mockReset();
     mockSavedRecipeFindMany.mockReset();
@@ -102,10 +115,7 @@ describe("POST /api/assistant", () => {
     mockSavedRecipeFindMany.mockResolvedValue([]);
     mockSavedRecipeCount.mockResolvedValue(0);
     mockMealPlanFindFirst.mockResolvedValue(null);
-    mockAskAssistant.mockResolvedValue({
-      success: true,
-      reply: "You could make the pasta you saved.",
-    });
+    mockAskAssistant.mockResolvedValue(TEXT_REPLY);
     mockReleaseGenerationSlot.mockResolvedValue(undefined);
   });
 
@@ -190,6 +200,20 @@ describe("POST /api/assistant", () => {
     expect(call.systemPrompt).toContain("Garlic Pasta");
   });
 
+  it("passes the assign_recipe_to_meal_plan tool to the first askAssistant call", async () => {
+    await POST(makeRequest(VALID_BODY));
+
+    const call = mockAskAssistant.mock.calls[0][0];
+    expect(call.tools).toEqual([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({
+          name: "assign_recipe_to_meal_plan",
+        }),
+      }),
+    ]);
+  });
+
   it("falls back to a direct saved-recipe fetch when embedding the query fails", async () => {
     mockGenerateEmbedding.mockResolvedValue({
       success: false,
@@ -238,13 +262,11 @@ describe("POST /api/assistant", () => {
     expect(call.systemPrompt).toContain("Garlic Pasta");
   });
 
-  it("never creates a MealPlan row as a side effect (read-only findFirst, no upsert/create)", async () => {
+  it("never creates a MealPlan row as a side effect of a plain question (read-only findFirst, no upsert/create)", async () => {
     await POST(makeRequest(VALID_BODY));
 
     expect(mockMealPlanFindFirst).toHaveBeenCalled();
-    // The mock module only defines findFirst — if the route ever called
-    // create/upsert on mealPlan, this would throw (property doesn't exist
-    // on the mock), which the test runner would report as a failure.
+    expect(mockAssignRecipeToMealPlan).not.toHaveBeenCalled();
   });
 
   it("tells the model when the similarity-search result is a partial list (fewer than the user's total saved recipes)", async () => {
@@ -309,5 +331,220 @@ describe("POST /api/assistant", () => {
     expect(response.status).toBe(200);
     const json = await response.json();
     expect(json.reply).toBe("You could make the pasta you saved.");
+  });
+
+  describe("tool call confirmation flow", () => {
+    const TOOL_CALL = {
+      id: "call_1",
+      name: "assign_recipe_to_meal_plan",
+      argumentsJson: JSON.stringify({
+        recipeId: "recipe-1",
+        dayOfWeek: 0,
+        mealType: "dinner",
+      }),
+    };
+
+    it("does not touch the database when the model replies with plain text (no tool call = no write)", async () => {
+      const response = await POST(makeRequest(VALID_BODY));
+
+      expect(response.status).toBe(200);
+      expect(mockAssignRecipeToMealPlan).not.toHaveBeenCalled();
+      // Only the first askAssistant call happens; no follow-up round.
+      expect(mockAskAssistant).toHaveBeenCalledTimes(1);
+    });
+
+    it("executes the write, makes a follow-up askAssistant call with the tool result, and returns mealPlanUpdate on success", async () => {
+      mockAskAssistant
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "",
+          toolCalls: [TOOL_CALL],
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "Done! I've added Garlic Pasta to Sunday dinner.",
+          toolCalls: [],
+        });
+      mockAssignRecipeToMealPlan.mockResolvedValue({
+        success: true,
+        recipeTitle: "Garlic Pasta",
+        dayLabel: "Sunday",
+        mealType: "dinner",
+      });
+
+      const response = await POST(
+        makeRequest({ message: "yes, assign it", history: [] }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockAssignRecipeToMealPlan).toHaveBeenCalledWith({
+        userId: "user-1",
+        recipeId: "recipe-1",
+        dayOfWeek: 0,
+        mealType: "dinner",
+      });
+      expect(mockAskAssistant).toHaveBeenCalledTimes(2);
+      const secondCall = mockAskAssistant.mock.calls[1][0];
+      expect(secondCall.toolResult.call).toEqual(TOOL_CALL);
+      expect(JSON.parse(secondCall.toolResult.resultContent)).toEqual({
+        success: true,
+        recipeTitle: "Garlic Pasta",
+        dayLabel: "Sunday",
+        mealType: "dinner",
+      });
+
+      const json = await response.json();
+      expect(json.reply).toBe(
+        "Done! I've added Garlic Pasta to Sunday dinner.",
+      );
+      expect(json.mealPlanUpdate).toEqual({
+        recipeTitle: "Garlic Pasta",
+        dayLabel: "Sunday",
+        mealType: "dinner",
+      });
+    });
+
+    it("rejects a recipeId the user doesn't own (assignRecipeToMealPlan's own ownership check fails) without a mealPlanUpdate in the response", async () => {
+      mockAskAssistant
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "",
+          toolCalls: [TOOL_CALL],
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "I couldn't find that recipe in your saved recipes.",
+          toolCalls: [],
+        });
+      mockAssignRecipeToMealPlan.mockResolvedValue({
+        success: false,
+        error:
+          "That recipe isn't one of your saved recipes, so it can't be assigned.",
+      });
+
+      const response = await POST(
+        makeRequest({ message: "yes, assign it", history: [] }),
+      );
+
+      expect(response.status).toBe(200);
+      const json = await response.json();
+      expect(json.mealPlanUpdate).toBeUndefined();
+      // The failure is fed back to the model as the tool result, not silently dropped.
+      const secondCall = mockAskAssistant.mock.calls[1][0];
+      expect(JSON.parse(secondCall.toolResult.resultContent).success).toBe(
+        false,
+      );
+    });
+
+    it("passes the authenticated session's userId to assignRecipeToMealPlan, never anything from the request body (cross-user protection)", async () => {
+      mockAuth.mockResolvedValue({ user: { id: "user-999" } });
+      mockAskAssistant
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "",
+          toolCalls: [TOOL_CALL],
+        })
+        .mockResolvedValueOnce(TEXT_REPLY);
+      mockAssignRecipeToMealPlan.mockResolvedValue({
+        success: true,
+        recipeTitle: "Garlic Pasta",
+        dayLabel: "Sunday",
+        mealType: "dinner",
+      });
+
+      await POST(makeRequest({ message: "yes, assign it", history: [] }));
+
+      expect(mockAssignRecipeToMealPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "user-999" }),
+      );
+    });
+
+    it("rejects malformed tool call arguments (invalid dayOfWeek) before ever calling assignRecipeToMealPlan", async () => {
+      mockAskAssistant
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "",
+          toolCalls: [
+            {
+              id: "call_2",
+              name: "assign_recipe_to_meal_plan",
+              argumentsJson: JSON.stringify({
+                recipeId: "recipe-1",
+                dayOfWeek: 9, // invalid — must be 0-6
+                mealType: "dinner",
+              }),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "Something went wrong assigning that.",
+          toolCalls: [],
+        });
+
+      const response = await POST(
+        makeRequest({ message: "yes, assign it", history: [] }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockAssignRecipeToMealPlan).not.toHaveBeenCalled();
+      const secondCall = mockAskAssistant.mock.calls[1][0];
+      expect(JSON.parse(secondCall.toolResult.resultContent).success).toBe(
+        false,
+      );
+    });
+
+    it("rejects malformed tool call arguments (invalid JSON) before ever calling assignRecipeToMealPlan", async () => {
+      mockAskAssistant
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "",
+          toolCalls: [
+            {
+              id: "call_3",
+              name: "assign_recipe_to_meal_plan",
+              argumentsJson: "{not valid json",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "Something went wrong.",
+          toolCalls: [],
+        });
+
+      const response = await POST(
+        makeRequest({ message: "yes, assign it", history: [] }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockAssignRecipeToMealPlan).not.toHaveBeenCalled();
+    });
+
+    it("returns 502 and releases the rate-limit slot when the follow-up (post-tool-call) askAssistant call fails", async () => {
+      mockAskAssistant
+        .mockResolvedValueOnce({
+          success: true,
+          reply: "",
+          toolCalls: [TOOL_CALL],
+        })
+        .mockResolvedValueOnce({
+          success: false,
+          error: "The cooking assistant timed out. Please try again.",
+        });
+      mockAssignRecipeToMealPlan.mockResolvedValue({
+        success: true,
+        recipeTitle: "Garlic Pasta",
+        dayLabel: "Sunday",
+        mealType: "dinner",
+      });
+
+      const response = await POST(
+        makeRequest({ message: "yes, assign it", history: [] }),
+      );
+
+      expect(response.status).toBe(502);
+      expect(mockReleaseGenerationSlot).toHaveBeenCalledWith("log-1");
+    });
   });
 });

@@ -12,6 +12,24 @@ import { MealType } from "@/app/generated/prisma/enums";
 export const DAY_OF_WEEK_MIN = 0;
 export const DAY_OF_WEEK_MAX = 6;
 
+/**
+ * Day labels indexed by the `dayOfWeek` convention above (0 = Sunday ...
+ * 6 = Saturday). Shared by the meal plan page, the assistant's system
+ * prompt, and the assistant's write-tool confirmation message. Lives in
+ * this dependency-free validations module (not lib/mealPlan.ts, which
+ * imports the Prisma client at module scope) so pure prompt-building code
+ * can use it without pulling in a live database connection at import time.
+ */
+export const DAY_LABELS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
 const dayOfWeekSchema = z
   .number()
   .int("dayOfWeek must be an integer.")

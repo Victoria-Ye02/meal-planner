@@ -4,9 +4,17 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 type ChatRole = "user" | "assistant";
 
+type MealPlanUpdate = {
+  recipeTitle: string;
+  dayLabel: string;
+  mealType: string;
+};
+
 type ChatMessage = {
   role: ChatRole;
   content: string;
+  /** Present on an assistant message only when it followed a confirmed meal-plan write. */
+  mealPlanUpdate?: MealPlanUpdate;
 };
 
 const EXAMPLE_QUESTIONS = [
@@ -28,13 +36,26 @@ function extractErrorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Narrow runtime check for the `{ reply: string }` body POST /api/assistant returns. */
-function isReplyResponse(value: unknown): value is { reply: string } {
+/** Narrow runtime check for the `{ reply: string, mealPlanUpdate?: {...} }` body POST /api/assistant returns. */
+function isReplyResponse(
+  value: unknown,
+): value is { reply: string; mealPlanUpdate?: MealPlanUpdate } {
   if (typeof value !== "object" || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.reply === "string" && candidate.reply.length > 0;
+  if (typeof candidate.reply !== "string" || candidate.reply.length === 0) {
+    return false;
+  }
+  if (candidate.mealPlanUpdate === undefined) {
+    return true;
+  }
+  const update = candidate.mealPlanUpdate as Record<string, unknown>;
+  return (
+    typeof update.recipeTitle === "string" &&
+    typeof update.dayLabel === "string" &&
+    typeof update.mealType === "string"
+  );
 }
 
 /**
@@ -98,7 +119,11 @@ export function AssistantChat() {
 
       setMessages((current) => [
         ...current,
-        { role: "assistant", content: body.reply },
+        {
+          role: "assistant",
+          content: body.reply,
+          mealPlanUpdate: body.mealPlanUpdate,
+        },
       ]);
     } catch {
       setError("Failed to reach the assistant. Please try again.");
@@ -158,7 +183,7 @@ export function AssistantChat() {
         {messages.map((message, index) => (
           <div
             key={index}
-            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex flex-col gap-1.5 ${message.role === "user" ? "items-end" : "items-start"}`}
           >
             <div
               className={`max-w-[85%] rounded-card px-4 py-2.5 text-sm whitespace-pre-line ${
@@ -169,6 +194,16 @@ export function AssistantChat() {
             >
               {message.content}
             </div>
+            {message.mealPlanUpdate && (
+              <div className="inline-flex max-w-[85%] items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+                <span aria-hidden="true">✓</span>
+                <span>
+                  Assigned &ldquo;{message.mealPlanUpdate.recipeTitle}&rdquo; to{" "}
+                  {message.mealPlanUpdate.dayLabel} ·{" "}
+                  {message.mealPlanUpdate.mealType}
+                </span>
+              </div>
+            )}
           </div>
         ))}
 
