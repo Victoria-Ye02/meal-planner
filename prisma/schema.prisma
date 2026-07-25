@@ -2,13 +2,15 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../app/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 // Note: the CLI reads the connection URL from prisma.config.ts, not from a `url` field here.
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 model User {
@@ -61,6 +63,14 @@ model SavedRecipe {
   userId   String
   recipeId String
   savedAt  DateTime @default(now())
+
+  /// text-embedding-3-small embedding (1536 dims) of the recipe's title +
+  /// ingredients + instructions, computed on save. `Unsupported` because
+  /// Prisma's schema DSL has no native vector scalar — reads/writes go
+  /// through $queryRaw/$executeRaw (see lib/ai/embeddings.ts and the
+  /// assistant route's similarity search). Nullable so existing rows
+  /// (pre-migration) are valid until the backfill script runs.
+  embedding Unsupported("vector(1536)")?
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)

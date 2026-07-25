@@ -2,20 +2,37 @@ import { NextResponse } from "next/server";
 
 import { askAssistant } from "@/lib/ai/chatAssistant";
 import { buildAssistantSystemPrompt } from "@/lib/ai/assistantPrompt";
+import { generateEmbedding } from "@/lib/ai/embeddings";
+import { findSimilarSavedRecipes } from "@/lib/ai/vectorSearch";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getCurrentWeekStartDate } from "@/lib/mealPlan";
 import { releaseGenerationSlot, reserveGenerationSlot } from "@/lib/rateLimit";
 import { assistantChatRequestSchema } from "@/lib/validations/assistant";
 
+/** How many saved recipes to retrieve via vector similarity search per message. */
+const SIMILAR_RECIPES_LIMIT = 5;
+
 /**
  * POST /api/assistant
  *
  * Auth -> validate -> rate-limit -> retrieve the user's own data -> ask the
- * AI -> return its reply. No vector search: the user's saved recipes and
- * current week's meal plan are small enough (a personal cookbook, not a
- * public corpus) that a direct Prisma fetch on every message is simpler
- * and sufficient — see tasks/plan.md for this scope decision.
+ * AI -> return its reply.
+ *
+ * Saved-recipe retrieval is vector search (pgvector, cosine distance via
+ * lib/ai/vectorSearch.ts): the user's message is embedded, then the
+ * `SIMILAR_RECIPES_LIMIT` closest saved recipes by embedding are fetched,
+ * instead of the user's entire saved-recipe collection. If embedding the
+ * query fails (embeddings API hiccup), this falls back to a direct fetch
+ * of the user's saved recipes (capped at the same limit, newest first) so
+ * one degraded dependency doesn't take the whole assistant down — vector
+ * search is a retrieval-quality enhancement, not a hard requirement for
+ * the feature to function.
+ *
+ * Meal plan retrieval is unchanged from the RAG-lite version: a direct
+ * fetch, not vector search — at most 21 slots for one week, no benefit to
+ * embedding-based retrieval at that size, and it's always fully relevant
+ * context regardless of what the user asked.
  *
  * Rate limiting reuses `reserveGenerationSlot`/`releaseGenerationSlot` —
  * the same `AiGenerationLog`-backed daily cap Task 6's recipe-generation
@@ -62,12 +79,33 @@ export async function POST(request: Request) {
 
   const { message, history } = parsed.data;
 
-  const [savedRecipeRows, weekPlan] = await Promise.all([
-    prisma.savedRecipe.findMany({
-      where: { userId },
-      include: { recipe: true },
-      orderBy: { savedAt: "desc" },
-    }),
+  const queryEmbeddingResult = await generateEmbedding(message);
+
+  const [savedRecipes, weekPlan, totalSavedRecipeCount] = await Promise.all([
+    queryEmbeddingResult.success
+      ? findSimilarSavedRecipes({
+          userId,
+          queryEmbedding: queryEmbeddingResult.embedding,
+          limit: SIMILAR_RECIPES_LIMIT,
+        })
+      : // Fallback: embedding the query failed, so fall back to a direct
+        // fetch (same shape as the original RAG-lite retrieval) capped at
+        // the same limit, rather than surfacing no saved recipes at all.
+        prisma.savedRecipe
+          .findMany({
+            where: { userId },
+            include: { recipe: true },
+            orderBy: { savedAt: "desc" },
+            take: SIMILAR_RECIPES_LIMIT,
+          })
+          .then((rows) =>
+            rows.map(({ recipe }) => ({
+              recipeId: recipe.id,
+              title: recipe.title,
+              ingredients: recipe.ingredients,
+              instructions: recipe.instructions,
+            })),
+          ),
     // Read-only lookup — never creates a MealPlan row as a side effect of
     // asking the assistant a question (same principle as the Generate
     // page's stat row: `findFirst`, not `upsert`).
@@ -75,14 +113,16 @@ export async function POST(request: Request) {
       where: { userId, weekStartDate: getCurrentWeekStartDate(new Date()) },
       include: { entries: { include: { recipe: true } } },
     }),
+    prisma.savedRecipe.count({ where: { userId } }),
   ]);
 
   const systemPrompt = buildAssistantSystemPrompt({
-    savedRecipes: savedRecipeRows.map(({ recipe }) => ({
-      title: recipe.title,
-      ingredients: recipe.ingredients,
-      instructions: recipe.instructions,
+    savedRecipes: savedRecipes.map(({ title, ingredients, instructions }) => ({
+      title,
+      ingredients,
+      instructions,
     })),
+    totalSavedRecipeCount,
     mealPlanEntries: (weekPlan?.entries ?? []).map((entry) => ({
       dayOfWeek: entry.dayOfWeek,
       mealType: entry.mealType,

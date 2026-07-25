@@ -13,6 +13,16 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+vi.mock("@/lib/ai/embeddings", () => ({
+  generateEmbedding: vi.fn(),
+}));
+
+vi.mock("@/lib/ai/vectorSearch", () => ({
+  setSavedRecipeEmbedding: vi.fn(),
+}));
+
+import { generateEmbedding } from "../../lib/ai/embeddings";
+import { setSavedRecipeEmbedding } from "../../lib/ai/vectorSearch";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/db";
 import { DELETE } from "../../app/api/recipes/save/[recipeId]/route";
@@ -25,6 +35,12 @@ const mockTransaction = prisma.$transaction as unknown as ReturnType<
 const mockDeleteMany = prisma.savedRecipe.deleteMany as unknown as ReturnType<
   typeof vi.fn
 >;
+const mockGenerateEmbedding = generateEmbedding as unknown as ReturnType<
+  typeof vi.fn
+>;
+const mockSetSavedRecipeEmbedding =
+  setSavedRecipeEmbedding as unknown as ReturnType<typeof vi.fn>;
+const SAMPLE_EMBEDDING = Array.from({ length: 1536 }, () => 0.01);
 
 const AUTHED_SESSION = { user: { id: "user-1", email: "user@example.com" } };
 const VALID_BODY = {
@@ -81,7 +97,14 @@ describe("POST /api/recipes/save", () => {
   beforeEach(() => {
     mockAuth.mockReset();
     mockTransaction.mockReset();
+    mockGenerateEmbedding.mockReset();
+    mockSetSavedRecipeEmbedding.mockReset();
     mockAuth.mockResolvedValue(AUTHED_SESSION);
+    mockGenerateEmbedding.mockResolvedValue({
+      success: true,
+      embedding: SAMPLE_EMBEDDING,
+    });
+    mockSetSavedRecipeEmbedding.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -165,6 +188,40 @@ describe("POST /api/recipes/save", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(400);
+  });
+
+  it("computes and stores an embedding for the newly-saved recipe", async () => {
+    stubTransaction();
+
+    await POST(makePostRequest(VALID_BODY));
+
+    expect(mockGenerateEmbedding).toHaveBeenCalledTimes(1);
+    const embeddingText = mockGenerateEmbedding.mock.calls[0][0];
+    expect(embeddingText).toContain("Garlic Pasta");
+    expect(embeddingText).toContain("pasta");
+    expect(embeddingText).toContain("Boil pasta");
+
+    expect(mockSetSavedRecipeEmbedding).toHaveBeenCalledWith({
+      userId: "user-1",
+      recipeId: "recipe-1",
+      embedding: SAMPLE_EMBEDDING,
+    });
+  });
+
+  it("still returns 201 (save succeeds) even if embedding generation fails", async () => {
+    stubTransaction();
+    mockGenerateEmbedding.mockResolvedValue({
+      success: false,
+      error: "Embedding service returned an error (status 500).",
+    });
+
+    const response = await POST(makePostRequest(VALID_BODY));
+
+    expect(response.status).toBe(201);
+    const json = await response.json();
+    expect(json.recipeId).toBe("recipe-1");
+    // No embedding to store, so this must not be called.
+    expect(mockSetSavedRecipeEmbedding).not.toHaveBeenCalled();
   });
 });
 

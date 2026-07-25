@@ -8,6 +8,14 @@ vi.mock("@/lib/ai/chatAssistant", () => ({
   askAssistant: vi.fn(),
 }));
 
+vi.mock("@/lib/ai/embeddings", () => ({
+  generateEmbedding: vi.fn(),
+}));
+
+vi.mock("@/lib/ai/vectorSearch", () => ({
+  findSimilarSavedRecipes: vi.fn(),
+}));
+
 vi.mock("@/lib/rateLimit", () => ({
   reserveGenerationSlot: vi.fn(),
   releaseGenerationSlot: vi.fn(),
@@ -17,6 +25,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     savedRecipe: {
       findMany: vi.fn(),
+      count: vi.fn(),
     },
     mealPlan: {
       findFirst: vi.fn(),
@@ -25,6 +34,8 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { askAssistant } from "../../lib/ai/chatAssistant";
+import { generateEmbedding } from "../../lib/ai/embeddings";
+import { findSimilarSavedRecipes } from "../../lib/ai/vectorSearch";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/db";
 import {
@@ -35,12 +46,20 @@ import { POST } from "../../app/api/assistant/route";
 
 const mockAuth = auth as unknown as ReturnType<typeof vi.fn>;
 const mockAskAssistant = askAssistant as unknown as ReturnType<typeof vi.fn>;
+const mockGenerateEmbedding = generateEmbedding as unknown as ReturnType<
+  typeof vi.fn
+>;
+const mockFindSimilarSavedRecipes =
+  findSimilarSavedRecipes as unknown as ReturnType<typeof vi.fn>;
 const mockReserveGenerationSlot =
   reserveGenerationSlot as unknown as ReturnType<typeof vi.fn>;
 const mockReleaseGenerationSlot =
   releaseGenerationSlot as unknown as ReturnType<typeof vi.fn>;
 const mockSavedRecipeFindMany = prisma.savedRecipe
   .findMany as unknown as ReturnType<typeof vi.fn>;
+const mockSavedRecipeCount = prisma.savedRecipe.count as unknown as ReturnType<
+  typeof vi.fn
+>;
 const mockMealPlanFindFirst = prisma.mealPlan
   .findFirst as unknown as ReturnType<typeof vi.fn>;
 
@@ -54,14 +73,18 @@ function makeRequest(body: unknown) {
 
 const AUTHED_SESSION = { user: { id: "user-1", email: "user@example.com" } };
 const VALID_BODY = { message: "What can I cook tonight?", history: [] };
+const SAMPLE_EMBEDDING = Array.from({ length: 1536 }, () => 0.01);
 
 describe("POST /api/assistant", () => {
   beforeEach(() => {
     mockAuth.mockReset();
     mockAskAssistant.mockReset();
+    mockGenerateEmbedding.mockReset();
+    mockFindSimilarSavedRecipes.mockReset();
     mockReserveGenerationSlot.mockReset();
     mockReleaseGenerationSlot.mockReset();
     mockSavedRecipeFindMany.mockReset();
+    mockSavedRecipeCount.mockReset();
     mockMealPlanFindFirst.mockReset();
 
     mockAuth.mockResolvedValue(AUTHED_SESSION);
@@ -71,7 +94,13 @@ describe("POST /api/assistant", () => {
       limit: 20,
       logId: "log-1",
     });
+    mockGenerateEmbedding.mockResolvedValue({
+      success: true,
+      embedding: SAMPLE_EMBEDDING,
+    });
+    mockFindSimilarSavedRecipes.mockResolvedValue([]);
     mockSavedRecipeFindMany.mockResolvedValue([]);
+    mockSavedRecipeCount.mockResolvedValue(0);
     mockMealPlanFindFirst.mockResolvedValue(null);
     mockAskAssistant.mockResolvedValue({
       success: true,
@@ -131,18 +160,66 @@ describe("POST /api/assistant", () => {
 
     expect(response.status).toBe(429);
     expect(mockAskAssistant).not.toHaveBeenCalled();
+    expect(mockGenerateEmbedding).not.toHaveBeenCalled();
   });
 
-  it("retrieves saved recipes and the current week's meal plan and forwards them into the system prompt", async () => {
+  it("embeds the user's message and retrieves saved recipes via vector similarity search", async () => {
+    mockFindSimilarSavedRecipes.mockResolvedValue([
+      {
+        recipeId: "r1",
+        title: "Garlic Pasta",
+        ingredients: ["pasta", "garlic"],
+        instructions: "Boil, saute, combine.",
+      },
+    ]);
+    mockSavedRecipeCount.mockResolvedValue(1);
+
+    const response = await POST(makeRequest(VALID_BODY));
+
+    expect(response.status).toBe(200);
+    expect(mockGenerateEmbedding).toHaveBeenCalledWith(VALID_BODY.message);
+    expect(mockFindSimilarSavedRecipes).toHaveBeenCalledWith({
+      userId: "user-1",
+      queryEmbedding: SAMPLE_EMBEDDING,
+      limit: 5,
+    });
+    // Direct-fetch fallback path must NOT run when vector search succeeds.
+    expect(mockSavedRecipeFindMany).not.toHaveBeenCalled();
+
+    const call = mockAskAssistant.mock.calls[0][0];
+    expect(call.systemPrompt).toContain("Garlic Pasta");
+  });
+
+  it("falls back to a direct saved-recipe fetch when embedding the query fails", async () => {
+    mockGenerateEmbedding.mockResolvedValue({
+      success: false,
+      error: "Embedding service returned an error (status 500).",
+    });
     mockSavedRecipeFindMany.mockResolvedValue([
       {
         recipe: {
-          title: "Garlic Pasta",
-          ingredients: ["pasta", "garlic"],
-          instructions: "Boil, saute, combine.",
+          id: "r2",
+          title: "Fallback Tacos",
+          ingredients: ["tortilla", "beef"],
+          instructions: "Cook, fill, fold.",
         },
       },
     ]);
+    mockSavedRecipeCount.mockResolvedValue(1);
+
+    const response = await POST(makeRequest(VALID_BODY));
+
+    expect(response.status).toBe(200);
+    expect(mockFindSimilarSavedRecipes).not.toHaveBeenCalled();
+    expect(mockSavedRecipeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "user-1" }, take: 5 }),
+    );
+
+    const call = mockAskAssistant.mock.calls[0][0];
+    expect(call.systemPrompt).toContain("Fallback Tacos");
+  });
+
+  it("retrieves the current week's meal plan (direct fetch, not vector search) and forwards it into the system prompt", async () => {
     mockMealPlanFindFirst.mockResolvedValue({
       entries: [
         {
@@ -157,8 +234,8 @@ describe("POST /api/assistant", () => {
 
     expect(response.status).toBe(200);
     const call = mockAskAssistant.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("Garlic Pasta");
     expect(call.systemPrompt).toContain("dinner");
+    expect(call.systemPrompt).toContain("Garlic Pasta");
   });
 
   it("never creates a MealPlan row as a side effect (read-only findFirst, no upsert/create)", async () => {
@@ -170,8 +247,27 @@ describe("POST /api/assistant", () => {
     // on the mock), which the test runner would report as a failure.
   });
 
+  it("tells the model when the similarity-search result is a partial list (fewer than the user's total saved recipes)", async () => {
+    mockFindSimilarSavedRecipes.mockResolvedValue([
+      {
+        recipeId: "r1",
+        title: "One Of Five",
+        ingredients: ["x"],
+        instructions: "y",
+      },
+    ]);
+    mockSavedRecipeCount.mockResolvedValue(12);
+
+    await POST(makeRequest(VALID_BODY));
+
+    const call = mockAskAssistant.mock.calls[0][0];
+    expect(call.systemPrompt).toContain("12");
+    expect(call.systemPrompt.toLowerCase()).toContain("not");
+  });
+
   it("handles an empty saved-recipes list and no meal plan gracefully (200, not a crash)", async () => {
-    mockSavedRecipeFindMany.mockResolvedValue([]);
+    mockFindSimilarSavedRecipes.mockResolvedValue([]);
+    mockSavedRecipeCount.mockResolvedValue(0);
     mockMealPlanFindFirst.mockResolvedValue(null);
 
     const response = await POST(makeRequest(VALID_BODY));

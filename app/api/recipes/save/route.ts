@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { generateEmbedding } from "@/lib/ai/embeddings";
+import { buildRecipeEmbeddingText } from "@/lib/ai/recipeEmbeddingText";
+import { setSavedRecipeEmbedding } from "@/lib/ai/vectorSearch";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { saveRecipeRequestSchema } from "@/lib/validations/saveRecipe";
@@ -64,6 +67,23 @@ export async function POST(request: Request) {
 
     return created;
   });
+
+  // Best-effort: compute and store the recipe's embedding for vector
+  // similarity search (lib/ai/vectorSearch.ts, used by the assistant
+  // route). Deliberately outside the transaction above and never fails
+  // the save itself — a missing embedding just means this recipe won't
+  // surface in similarity search until the next backfill run, which is
+  // far better than a save failing because the embeddings API hiccuped.
+  const embeddingResult = await generateEmbedding(
+    buildRecipeEmbeddingText({ title, ingredients, instructions }),
+  );
+  if (embeddingResult.success) {
+    await setSavedRecipeEmbedding({
+      userId,
+      recipeId: recipe.id,
+      embedding: embeddingResult.embedding,
+    });
+  }
 
   return NextResponse.json({ recipeId: recipe.id }, { status: 201 });
 }

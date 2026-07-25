@@ -51,6 +51,35 @@ describe("buildAssistantSystemPrompt", () => {
     expect(prompt.toLowerCase()).toMatch(/no saved recipes|empty|none/);
   });
 
+  test("notes when the saved-recipes list is a partial (vector-search top-K) subset of the user's total", () => {
+    const prompt = buildAssistantSystemPrompt({
+      savedRecipes: [
+        {
+          title: "Top Match",
+          ingredients: ["a"],
+          instructions: "b",
+        },
+      ],
+      mealPlanEntries: [],
+      totalSavedRecipeCount: 12,
+    });
+
+    expect(prompt).toContain("12");
+    expect(prompt.toLowerCase()).toContain("not");
+  });
+
+  test("does not add the partial-list caveat when totalSavedRecipeCount equals the list length", () => {
+    const prompt = buildAssistantSystemPrompt({
+      savedRecipes: [
+        { title: "Only One", ingredients: ["a"], instructions: "b" },
+      ],
+      mealPlanEntries: [],
+      totalSavedRecipeCount: 1,
+    });
+
+    expect(prompt).toContain("complete list");
+  });
+
   test("does not let an ingredient string masquerading as an instruction escape the data block", () => {
     const prompt = buildAssistantSystemPrompt({
       savedRecipes: [

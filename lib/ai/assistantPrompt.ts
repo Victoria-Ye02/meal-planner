@@ -25,6 +25,16 @@ export interface AssistantMealPlanEntryData {
 export interface AssistantPromptInput {
   savedRecipes: AssistantRecipeData[];
   mealPlanEntries: AssistantMealPlanEntryData[];
+  /**
+   * Total number of recipes the user has saved, when `savedRecipes` below
+   * is a top-K similarity-search subset rather than the complete
+   * collection (see the assistant route's vector search). Omit or leave
+   * equal to `savedRecipes.length` when the list IS complete (e.g. a
+   * direct-fetch fallback) — the prompt only adds the "not the full list"
+   * caveat when the two counts actually differ, so the assistant doesn't
+   * hedge unnecessarily on an already-complete list.
+   */
+  totalSavedRecipeCount?: number;
 }
 
 const DAY_LABELS = [
@@ -45,12 +55,22 @@ const DAY_LABELS = [
 export function buildAssistantSystemPrompt({
   savedRecipes,
   mealPlanEntries,
+  totalSavedRecipeCount,
 }: AssistantPromptInput): string {
+  const isPartialList =
+    totalSavedRecipeCount !== undefined &&
+    totalSavedRecipeCount > savedRecipes.length;
+
   const dataBlock = JSON.stringify(
     {
       savedRecipes:
         savedRecipes.length > 0
-          ? savedRecipes
+          ? {
+              note: isPartialList
+                ? `Showing the ${savedRecipes.length} recipes most relevant to the user's message, out of ${totalSavedRecipeCount} saved recipes total. This is NOT the user's complete saved-recipe list — if they ask for a full list or a count of all their recipes, say you can only see the most relevant ones for this question and don't have their complete collection in view.`
+                : "This is the user's complete list of saved recipes.",
+              recipes: savedRecipes,
+            }
           : "The user has no saved recipes yet.",
       mealPlan:
         mealPlanEntries.length > 0
